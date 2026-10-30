@@ -12,6 +12,7 @@ import {
   updateStep,
   type StepPatch,
 } from '../combo/edit';
+import { SHARE_PREFIX, encodeCombo } from '../combo/share';
 import { validateCombo } from '../engine/attempt';
 import type { Combo, StartMode, Step, TimingMode } from '../engine/types';
 import { BUTTON_IDS } from '../input/mapping';
@@ -25,6 +26,8 @@ export interface EditorSession {
   draft: Combo;
   /** What the draft is compared against to detect unsaved changes. */
   baseline: Combo;
+  /** One-time message for the next time the editor opens (e.g. after opening a share link). */
+  notice?: string;
 }
 
 const FPS_PRESETS = [30, 60, 120];
@@ -84,6 +87,9 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
   const deleteBtn = el('button', { type: 'button', className: 'danger', textContent: 'Delete' });
   const status = el('span', { className: 'status', role: 'status' });
   const practiceBtn = el('button', { type: 'button', className: 'practice-btn', textContent: 'Practice ▶' });
+  const shareBtn = el('button', { type: 'button', textContent: 'Copy share link' });
+  const notice = el('p', { className: 'notice', role: 'status', hidden: !session.notice, textContent: session.notice ?? '' });
+  delete session.notice;
 
   root.replaceChildren(
     el('section', { className: 'card' }, [
@@ -92,6 +98,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     ]),
     el('section', { className: 'card editor' }, [
       el('div', { className: 'card-head' }, [el('h2', { textContent: 'Edit combo' }), practiceBtn]),
+      notice,
       el('div', { className: 'fields' }, [
         el('label', { className: 'field grow' }, [el('span', { textContent: 'Name' }), nameInput]),
         el('label', { className: 'field' }, [el('span', { textContent: 'Framerate (fps)' }), fpsInput, fpsPresets]),
@@ -103,7 +110,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       stepList,
       addBtn,
       errorList,
-      el('div', { className: 'actions' }, [saveBtn, saveAsBtn, revertBtn, deleteBtn, status]),
+      el('div', { className: 'actions' }, [saveBtn, saveAsBtn, revertBtn, deleteBtn, shareBtn, status]),
     ]),
   );
 
@@ -251,6 +258,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     saveBtn.disabled = errors.length > 0 || (!dirty && session.id !== null);
     saveAsBtn.disabled = errors.length > 0;
     practiceBtn.disabled = validateCombo(d).length > 0;
+    shareBtn.disabled = validateCombo(d).length > 0;
     practiceBtn.title = dirty ? 'Practices the combo as edited, including unsaved changes' : '';
     revertBtn.disabled = !dirty;
     deleteBtn.disabled = session.id === null;
@@ -345,6 +353,19 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     setDraft(addStep(session.draft));
     rebuildSteps();
     rows.at(-1)?.targetInput.focus();
+  });
+  shareBtn.addEventListener('click', () => {
+    // Shares the combo as shown, including unsaved changes.
+    const url = `${location.origin}${location.pathname}${location.search}${SHARE_PREFIX}${encodeCombo(session.draft)}`;
+    const fallback = () => window.prompt('Copy this link to share the combo:', url);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(
+        () => setStatus('Share link copied'),
+        () => fallback(),
+      );
+    } else {
+      fallback();
+    }
   });
   practiceBtn.addEventListener('click', () => {
     location.hash = '#practice';

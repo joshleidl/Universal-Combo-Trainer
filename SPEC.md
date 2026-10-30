@@ -78,6 +78,9 @@ src/
   combo/         # pure combo-editing helpers + shipped examples; no DOM; unit tested
     edit.ts
     examples.ts
+    share.ts       combo ↔ share-link code
+  calibration/   # pure latency-calibration math; no DOM; unit tested
+    calibration.ts beat schedule, tap matching, median offset per source
   practice/      # pure practice-session logic on top of the engine; no DOM; unit tested
     session.ts     back-to-back attempts, countdown before each attempt, quick restart
     cues.ts        which sounds a state change makes; metronome tick times
@@ -89,10 +92,13 @@ src/
   storage/
     combos.ts      save/load via localStorage (storage injected, so it's testable in Node)
     mapping.ts     saved input mapping
-    settings.ts    saved app settings (strict mode, sound)
-  main.ts        page shell + hash routing (#debug = input debug page)
+    settings.ts    saved app settings (strict mode, sound, latency offsets)
+  main.ts        page shell + hash routing (#practice, #controls, #calibrate, #debug, #share=…)
+.github/workflows/deploy.yml   GitHub Pages deploy
+netlify.toml                   Netlify alternative
 tests/
   audio/*.test.ts
+  calibration/*.test.ts
   engine/*.test.ts
   input/*.test.ts
   combo/*.test.ts
@@ -217,7 +223,8 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 
 ## Next session
 - Layer 4 (practice mode + feedback) plus input remapping and the MISC1/MISC2 buttons were reviewed and committed on 2026-10-30.
-- Layer 5 Part A (sound, countdowns, saved settings, Hear timing) built on 2026-10-30, waiting for review. Part B (calibration, mobile pass, deploy config, share-by-URL) comes after.
+- Layer 5 Part A (sound, countdowns, saved settings, Hear timing) was reviewed and committed on 2026-10-30.
+- Layer 5 Part B (calibration, mobile pass, deploy config, share-by-URL) built on 2026-10-30, waiting for review. GitHub Pages' source must be set to "GitHub Actions" in the repo settings (see the Part B decisions).
 
 ## Decisions log
 
@@ -348,6 +355,37 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - Any button press stops it, so its tones don't mix with an attempt. It doesn't change the practice state.
   - The schedule is a pure function (`timingPreview` in `practice/cues.ts`) and is unit tested. A new `press` tone is used for the steps.
 - **Editor:** the countdown start-mode hint no longer says it's coming in Layer 5, and the practice page runs countdown combos instead of showing a message.
+
+### Layer 5 Part B: calibration, mobile, deploy, sharing (2026-10-30)
+- **New `calibration/` module:** pure beat schedule, tap matching and results, unit tested with synthetic taps. `ui/calibrate.ts` only renders and plays the beat. The engine API is unchanged; offsets reach it through the existing `Settings.latencyOffsetMs`.
+- **Calibration run:** Start → 1 s lead-in → 4 count-in beats (not recorded) → 20 recorded beats, 500 ms apart (120 BPM). Count-in beats use the countdown `beat` sound, recorded beats the short `tick` (a sharp start is easier to tap to). The beat always plays on this page, whatever the Sounds setting, because it is the point of the page. A circle flashes on each beat as a visual guide. Escape or Stop ends a run.
+- **Starting needs a click** (the Start button), not a pad press, because the click also unlocks browser audio.
+- **Tap matching:** any press counts, mapped or not. A tap belongs to the nearest recorded beat and only if it is less than half a beat (250 ms) away. Only the first tap per beat per source counts. Count-in taps and taps after the last beat are ignored.
+- **Result per source:**
+  - Keyboard and gamepad are measured separately from the same run, so one run can calibrate both.
+  - Offset = **median** of (tap − beat), as §6 says. Spread = population standard deviation (the same "spread" as session stats).
+  - A source needs at least 10 recorded taps to be usable. A spread over 30 ms gets a "consider trying again" note.
+  - The result is not applied automatically: a "Use +X ms" button applies it, rounded to 0.1 ms.
+- **What the offset includes:** everything between the scheduled beat and the press timestamp: audio output delay, the player's habit of tapping early or late, and input delay. Beats use the same audio scheduling as the countdown and metronome (Part A), so the offset matches those exactly. Not measured separately: display delay of the flash.
+- **Manual offsets:** number inputs per source on the Calibrate page, saved on change, with "Set to 0". Values must be within ±1000 ms (`MAX_LATENCY_OFFSET_MS`); anything else is rejected on input and on load.
+- **Saved** in `uct.settings.v1` as `latencyOffsetMs: { keyboard, gamepad }`, each falling back to 0 on its own if invalid. The practice page uses them for grading and shows them with a link to Calibrate.
+- **When the offset matters** (explained on the page): countdown starts (step 1 is measured from Go) and the metronome. In first-input combos frame 0 is the first press, which shifts by the same offset as every other press, so it cancels out unless keyboard and gamepad are mixed in one attempt.
+- **Share by URL:**
+  - "Copy share link" in the editor puts the combo, including unsaved changes, into `#share=<code>`. The code is base64url of compact JSON (`{ v: 1, n, f, t, s, p: [[button, target, early, late, label?]] }`), about 200 characters for a 3-step combo. Disabled while the combo is invalid.
+  - Copies with the Clipboard API, or shows the link in a prompt to copy by hand where that isn't available (e.g. http on a LAN address).
+  - Opening a link: the hash is cleared from the URL, and the combo opens in the editor as a new, unsaved combo with a notice saying to Save it. If the current draft has unsaved changes, the app asks first. A damaged link, unknown version, or a combo the engine rejects opens nothing and shows a notice. A blank name becomes "Shared combo". Codes over 20,000 characters are rejected unread.
+- **Deploy:**
+  - Vite already builds with `base: './'`, so the same `dist/` works at a domain root or a subfolder (GitHub Pages serves `/Universal-Combo-Trainer/`). Hash routing means no server rewrites are needed.
+  - `.github/workflows/deploy.yml` runs `npm ci`, the tests and the build on every push to `main`, then publishes `dist/` to GitHub Pages. **One-time setup:** repo Settings → Pages → Source: "GitHub Actions".
+  - `netlify.toml` is the alternative: same tests and build, publish `dist/`. Both pin Node 24.14.0 like `mise.toml`.
+  - **Host (2026-10-30):** the repo was made public so GitHub Pages is free, and Pages is the host. The site is served under the account's Pages custom domain: `joshleidl.com/Universal-Combo-Trainer/`. `netlify.toml` stays as a fallback.
+- **Mobile layout pass:** every page was checked at 375 px wide.
+  - The header nav now wraps; with the new Calibrate link it was pushing the page wider than the screen.
+  - On the Controls page each button's row stacks at ≤ 600 px (name and Bind button on top, keyboard and gamepad chips below, each labelled), because the Bind column was off screen.
+  - The calibration circle is smaller on phones.
+  - Wide tables on the practice stats and debug pages keep scrolling inside their own box, which is acceptable there.
+  - No page scrolls sideways at 375 px.
+  - There is still no on-screen touch input for presses; a phone needs a keyboard or controller (desktop is the primary target, §7).
 
 ### Tooling (2026-10-29)
 - **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.

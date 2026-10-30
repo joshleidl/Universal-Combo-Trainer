@@ -64,7 +64,7 @@ export function renderControlsPage(root: HTMLElement, holder: MappingHolder, onB
       el('p', {
         className: 'hint',
         textContent:
-          'Click “Bind”, then press a key, pad button, stick direction or d-pad/lever direction. Each control presses one button, so binding it again moves it. A button can have several controls. Escape and Tab can’t be bound. Space, and Start/Back on a pad, restart practice only while they aren’t bound.',
+          'Click or tap “Bind”, then press a key, pad button, stick direction or d-pad/lever direction. Each control presses one button, so binding it again moves it. A button can have several controls. Escape and Tab can’t be bound. Space, and Start/Back on a pad, restart practice only while they aren’t bound.',
       }),
     ]),
   );
@@ -90,9 +90,10 @@ export function renderControlsPage(root: HTMLElement, holder: MappingHolder, onB
         });
         const row = el('tr', { className: listening ? 'listening' : '' }, [
           el('td', { className: 'bind-button', textContent: button }),
-          el('td', {}, [chips(mine.filter((b) => b.source === 'keyboard'))]),
-          el('td', {}, [chips(mine.filter((b) => b.source === 'gamepad'))]),
-          el('td', {}, [bindBtn]),
+          // data-label names the column when the table stacks at phone width.
+          el('td', { className: 'bind-keys' }, [chips(mine.filter((b) => b.source === 'keyboard'))]),
+          el('td', { className: 'bind-pad' }, [chips(mine.filter((b) => b.source === 'gamepad'))]),
+          el('td', { className: 'bind-action' }, [bindBtn]),
         ]);
         rowsByButton.set(button, row);
         return row;

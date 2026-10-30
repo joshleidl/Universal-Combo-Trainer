@@ -3,10 +3,13 @@ import { SoundPlayer } from './audio/sounds';
 import { ComboStore, memoryStorage, type StorageLike } from './storage/combos';
 import { loadMapping, resetMapping, saveMapping } from './storage/mapping';
 import { loadSettings, saveSettings } from './storage/settings';
+import { renderCalibratePage } from './ui/calibrate';
 import { renderControlsPage, type MappingHolder } from './ui/controls';
 import { renderDebugPage } from './ui/debug';
 import { el } from './ui/dom';
-import { initialSession, renderEditorPage } from './ui/editor';
+import { decodeCombo, shareCodeFromHash } from './combo/share';
+import { cloneCombo } from './combo/edit';
+import { initialSession, isDirty, renderEditorPage } from './ui/editor';
 import { newPracticeMemory, renderPracticePage, type SettingsHolder } from './ui/practice';
 
 /** localStorage, or an in-memory stand-in when the browser blocks it (e.g. some private modes). */
@@ -60,6 +63,7 @@ if (app) {
     controls: { hash: '#controls', label: 'Controls', render: (root: HTMLElement) => renderControlsPage(root, controls, () => {
       if (settings.current.sound) sound.play('bound');
     }) },
+    calibrate: { hash: '#calibrate', label: 'Calibrate', render: (root: HTMLElement) => renderCalibratePage(root, controls.current, settings, sound) },
     debug: { hash: '#debug', label: 'Input debug', render: (root: HTMLElement) => renderDebugPage(root, controls.current) },
   } as const;
   type Route = keyof typeof routes;
@@ -82,7 +86,28 @@ if (app) {
   );
 
   let cleanup: (() => void) | null = null;
+  /** Opens a `#share=` link in the editor as a new, unsaved combo, then clears it from the URL. */
+  const openShareLink = () => {
+    const code = shareCodeFromHash(location.hash);
+    if (code === null) return;
+    history.replaceState(null, '', `${location.pathname}${location.search}#`);
+    const combo = decodeCombo(code);
+    if (!combo) {
+      session.notice = 'That share link is damaged or incomplete, so nothing was opened.';
+      return;
+    }
+    const replace =
+      !isDirty(session) ||
+      window.confirm(`Open the shared combo "${combo.name}"? Unsaved changes to "${session.draft.name || 'this combo'}" will be lost.`);
+    if (!replace) return;
+    session.id = null;
+    session.baseline = combo;
+    session.draft = cloneCombo(combo);
+    session.notice = `Opened the shared combo "${combo.name}". It isn’t saved yet: press Save to keep it.`;
+  };
+
   const show = () => {
+    openShareLink();
     const route = (Object.keys(routes) as Route[]).find((r) => r !== 'editor' && routes[r].hash === location.hash) ?? 'editor';
     cleanup?.();
     cleanup = routes[route].render(page);

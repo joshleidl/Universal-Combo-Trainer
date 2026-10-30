@@ -126,7 +126,11 @@ export function renderPracticePage(
     return () => {};
   }
 
-  const settings = (): Settings => ({ ...DEFAULT_SETTINGS, strict: app.current.strict });
+  const settings = (): Settings => ({
+    ...DEFAULT_SETTINGS,
+    strict: app.current.strict,
+    latencyOffsetMs: { ...app.current.latencyOffsetMs },
+  });
   const isCountdown = combo.startMode === 'countdown';
   const keepStats = memory.combo !== null && memory.stats !== null && combosEqual(memory.combo, combo);
   let state: PracticeState = createPractice(combo, settings(), keepStats ? (memory.stats ?? undefined) : undefined);
@@ -186,6 +190,7 @@ export function renderPracticePage(
       stepRow,
       gamepadWarning,
       el('p', { className: 'hint' }, keyHint(mapping)),
+      el('p', { className: 'hint' }, latencyHint(app.current)),
     ]),
     el('section', { className: 'card' }, [el('h2', { textContent: 'Last attempt' }), timelineBox, timelineNote]),
     el('section', { className: 'card' }, [
@@ -592,6 +597,15 @@ function tolText(early: number, late: number): string {
   if (early === 0 && late === 0) return '';
   if (early === late) return ` ±${early}`;
   return ` −${early}/+${late}`;
+}
+
+function latencyHint(s: AppSettings): (Node | string)[] {
+  const ms = (n: number) => `${n > 0 ? '+' : ''}${n.toFixed(1)} ms`;
+  return [
+    `Latency offsets: keyboard ${ms(s.latencyOffsetMs.keyboard)}, gamepad ${ms(s.latencyOffsetMs.gamepad)}. `,
+    el('a', { href: '#calibrate', textContent: 'Calibrate' }),
+    '.',
+  ];
 }
 
 function keyHint(mapping: InputMapping): (Node | string)[] {

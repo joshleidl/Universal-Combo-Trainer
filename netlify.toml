@@ -1,0 +1,7 @@
+# Netlify alternative to the GitHub Pages workflow (SPEC §2: static hosting).
+[build]
+  command = "npm test && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "24.14.0" # matches mise.toml

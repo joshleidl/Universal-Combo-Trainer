@@ -18,7 +18,7 @@ describe('app settings storage', () => {
 
   it('round-trips saved settings', () => {
     const st = memoryStorage();
-    const s = { strict: false, sound: true, metronome: true, volume: 0.25 };
+    const s = { strict: false, sound: true, metronome: true, volume: 0.25, latencyOffsetMs: { keyboard: 12.5, gamepad: -4 } };
     saveSettings(st, s);
     expect(loadSettings(st)).toEqual(s);
   });
@@ -27,6 +27,14 @@ describe('app settings storage', () => {
     const st = memoryStorage();
     st.setItem(SETTINGS_KEY, JSON.stringify({ version: 1, strict: false, sound: 'yes', volume: 3 }));
     expect(loadSettings(st)).toEqual({ ...DEFAULT_APP_SETTINGS, strict: false });
+  });
+
+  it('keeps each latency offset only if it is a finite number within the limit', () => {
+    const st = memoryStorage();
+    st.setItem(SETTINGS_KEY, JSON.stringify({ version: 1, latencyOffsetMs: { keyboard: 25, gamepad: 5000 } }));
+    expect(loadSettings(st).latencyOffsetMs).toEqual({ keyboard: 25, gamepad: 0 });
+    st.setItem(SETTINGS_KEY, JSON.stringify({ version: 1, latencyOffsetMs: 'x' }));
+    expect(loadSettings(st).latencyOffsetMs).toEqual({ keyboard: 0, gamepad: 0 });
   });
 
   it('uses the defaults for unreadable data or an unknown version', () => {
