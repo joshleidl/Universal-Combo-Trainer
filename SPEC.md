@@ -224,7 +224,8 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 ## Next session
 - Layer 4 (practice mode + feedback) plus input remapping and the MISC1/MISC2 buttons were reviewed and committed on 2026-10-30.
 - Layer 5 Part A (sound, countdowns, saved settings, Hear timing) was reviewed and committed on 2026-10-30.
-- Layer 5 Part B (calibration, mobile pass, deploy config, share-by-URL) built on 2026-10-30, waiting for review. GitHub Pages' source must be set to "GitHub Actions" in the repo settings (see the Part B decisions).
+- Layer 5 Part B (calibration, mobile pass, deploy config, share-by-URL) was reviewed and committed on 2026-10-30. The app is live at https://joshleidl.github.io/Universal-Combo-Trainer/ and redeploys on every push to `main`.
+- All §8 layers are done. Next candidates are in the Backlog (e.g. the advanced combo-building mode), plus testing calibration and the phone layout on real hardware.
 
 ## Decisions log
 
@@ -378,7 +379,8 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - Vite already builds with `base: './'`, so the same `dist/` works at a domain root or a subfolder (GitHub Pages serves `/Universal-Combo-Trainer/`). Hash routing means no server rewrites are needed.
   - `.github/workflows/deploy.yml` runs `npm ci`, the tests and the build on every push to `main`, then publishes `dist/` to GitHub Pages. **One-time setup:** repo Settings → Pages → Source: "GitHub Actions".
   - `netlify.toml` is the alternative: same tests and build, publish `dist/`. Both pin Node 24.14.0 like `mise.toml`.
-  - **Host (2026-10-30):** the repo was made public so GitHub Pages is free, and Pages is the host. The site is served under the account's Pages custom domain: `joshleidl.com/Universal-Combo-Trainer/`. `netlify.toml` stays as a fallback.
+  - **Host (2026-10-30):** the repo was made public so GitHub Pages is free, and Pages is the host: https://joshleidl.github.io/Universal-Combo-Trainer/. `netlify.toml` stays as a fallback.
+  - **First deploy problem (2026-10-30):** the account's user site (`joshleidl.github.io` repo) had a `CNAME` for joshleidl.com, a domain with no DNS, and every project site redirected there. The user removed it. Separately, the first push ran while the Pages source was still "Deploy from a branch", so GitHub's branch deploy of the raw files (whose `index.html` loads `/src/main.ts`) overwrote the built app; Firefox showed `NS_ERROR_CORRUPTED_CONTENT`. With the source on "GitHub Actions" only the workflow deploys. If it ever happens again, re-run the workflow from the Actions tab.
 - **Mobile layout pass:** every page was checked at 375 px wide.
   - The header nav now wraps; with the new Calibrate link it was pushing the page wider than the screen.
   - On the Controls page each button's row stacks at ≤ 600 px (name and Bind button on top, keyboard and gamepad chips below, each labelled), because the Bind column was off screen.
