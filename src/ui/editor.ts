@@ -35,7 +35,7 @@ const TIMING_HINTS: Record<TimingMode, string> = {
 };
 const START_HINTS: Record<StartMode, string> = {
   firstInput: 'First input: pressing step 1 starts the attempt (frame 0), so step 1 only checks the button.',
-  countdown: 'Countdown: a countdown sets frame 0 and step 1 is timed like any other step. (Countdown practice arrives in Layer 5.)',
+  countdown: 'Countdown: a countdown sets frame 0 and step 1 is timed like any other step.',
 };
 
 /** Opens the last combo the user had open, else the first saved one, else a new draft. */

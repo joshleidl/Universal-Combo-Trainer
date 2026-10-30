@@ -420,8 +420,52 @@ button.danger {
   gap: 6px;
 }
 
+.practice-step.previewing {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.practice-card {
+  position: relative;
+}
+
+/* Big countdown number, top right of the practice card. Empty when no countdown runs. */
+.countdown {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.countdown.go {
+  color: var(--ok);
+}
+
+.sound-controls {
+  margin-top: -4px;
+}
+
+.volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.volume input[type='range'] {
+  padding: 0;
+  border: none;
+  background: none;
+  width: 120px;
+}
+
 .practice-status {
   margin: 0 0 12px;
+  padding-right: 3.5rem; /* room for the countdown */
   font-size: 1.1rem;
   font-weight: 600;
   min-height: 1.5em;

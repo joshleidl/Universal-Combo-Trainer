@@ -79,14 +79,20 @@ src/
     edit.ts
     examples.ts
   practice/      # pure practice-session logic on top of the engine; no DOM; unit tested
-    session.ts     back-to-back attempts, quick restart, auto re-arm
+    session.ts     back-to-back attempts, countdown before each attempt, quick restart
+    cues.ts        which sounds a state change makes; metronome tick times
     stats.ts       session stats
     timeline.ts    timeline geometry (frames since frame 0)
     format.ts      feedback text ("2f late (+31.4 ms)")
+  audio/
+    sounds.ts      synthesized sounds via Web Audio, scheduled on the performance.now() clock
   storage/
     combos.ts      save/load via localStorage (storage injected, so it's testable in Node)
+    mapping.ts     saved input mapping
+    settings.ts    saved app settings (strict mode, sound)
   main.ts        page shell + hash routing (#debug = input debug page)
 tests/
+  audio/*.test.ts
   engine/*.test.ts
   input/*.test.ts
   combo/*.test.ts
@@ -182,6 +188,9 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 ### Layer 5: Polish
 - Latency calibration screen (§6), audio cues, countdown start mode UI, input remapping UI (done early, in Layer 4, at the user's request), mobile layout pass, deploy config for static hosting.
 - Optional: share combo via URL.
+- Reviewed in two parts:
+  - **Part A:** audio cues and sound feedback, countdown start mode, countdown before each attempt, saved settings, and a "Hear timing" preview.
+  - **Part B:** latency calibration, mobile layout pass, deploy config, optional share-by-URL.
 
 ## 9. Out of scope (for now)
 - Motion inputs (quarter-circles, charge inputs) and simultaneous multi-button presses. Design types so these can be added later (e.g. a step could become a list of required inputs within a chord window).
@@ -199,8 +208,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - If the backup fails (e.g. the folder isn't reachable), the commit stands. Claude reports the failure instead of retrying silently.
 
 ## Backlog
-- **Countdown before each attempt** (requested 2026-10-30, Layer 4 review). Replace the 1 s quiet-time re-arm between attempts with a countdown that starts the next attempt. Ties in with the countdown start mode UI in Layer 5. The 1 s wait is fine as a stopgap.
-- **Basic sound feedback for app events** (requested 2026-10-30, Layer 4 review). Short sounds for things like: attempt armed / countdown ticks, a step graded on time vs. off, attempt clean vs. failed, a control bound on the Controls page. Overlaps with the Layer 5 audio cues (§7); off by default per §7.
+- ~~Countdown before each attempt~~ and ~~basic sound feedback for app events~~ (requested 2026-10-30, Layer 4 review): done in Layer 5 Part A, see the Decisions log.
 - **Advanced combo-building mode** (requested 2026-10-30, after the Layer 3 review). An optional editor mode for steps that need more than one button press:
   - **Release events as steps:** grade the timing of a button release, not only presses (e.g. negative-edge inputs, or holding a button for a set number of frames). The input layer already emits releases (see Decisions log, "Release events").
   - **Grouped inputs:** a step made of several inputs. They can be *sequential*, like a motion input (quarter-circle forward = DOWN, DOWN+RIGHT, RIGHT, then a button), or *simultaneous*, like a chord (two buttons within a few frames of each other).
@@ -208,7 +216,8 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - Motion and chord inputs are out of scope for now (§9). This changes the engine's `Step` type and grading, so a written proposal and spec update come before any code (CLAUDE.md).
 
 ## Next session
-- Layer 4 (practice mode + feedback) plus input remapping and the MISC1/MISC2 buttons were reviewed and committed on 2026-10-30. Layer 5 is next; see the Backlog for the countdown-between-attempts and sound feedback requests.
+- Layer 4 (practice mode + feedback) plus input remapping and the MISC1/MISC2 buttons were reviewed and committed on 2026-10-30.
+- Layer 5 Part A (sound, countdowns, saved settings, Hear timing) built on 2026-10-30, waiting for review. Part B (calibration, mobile pass, deploy config, share-by-URL) comes after.
 
 ## Decisions log
 
@@ -273,8 +282,8 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 ### Layer 4 (2026-10-30)
 - **New `practice/` module:** the attempt-to-attempt flow (`createPractice`, `practicePress`, `practiceTick`, `practiceRestart`, `practiceWithSettings`, `resetStats`, `shownAttempt`), session stats, timeline geometry and feedback text. All pure and unit tested with synthetic timestamps, so `ui/practice.ts` only renders and forwards input. The engine is unchanged.
 - **What gets practiced:** the combo open in the editor, including unsaved changes. The editor has a Practice button (disabled while the combo is invalid) and the header has a Practice link (`#practice`).
-- **Countdown combos** show a message on the practice page instead of running, because the countdown UI is Layer 5.
-- **Auto re-arm:** after an attempt ends, the next one arms once there has been **1 s with no presses** (`REARM_QUIET_MS`). Each press during that time restarts the wait, so mashing out the rest of a dropped combo doesn't start (and fail) a new attempt.
+- **Countdown combos** show a message on the practice page instead of running, because the countdown UI is Layer 5. (Superseded: countdown combos run, see Layer 5 Part A.)
+- **Auto re-arm:** after an attempt ends, the next one arms once there has been **1 s with no presses** (`REARM_QUIET_MS`). Each press during that time restarts the wait, so mashing out the rest of a dropped combo doesn't start (and fail) a new attempt. (Superseded: a countdown replaces the quiet wait, see Layer 5 Part A.)
 - **Quick restart:** Space on the keyboard, or Back (8) / Start (9) on a standard-layout pad, re-arms immediately. These only count as restart while they're unmapped. Restarting during an attempt abandons it, and an abandoned attempt isn't counted in the stats. Space's default action (scrolling, clicking the focused button) is blocked on the practice page.
 - **Results stay on screen:** the last finished attempt stays on screen until the next attempt grades its first step.
 - **Ticks:** a `requestAnimationFrame` loop calls `practiceTick(performance.now())` to declare misses and re-arm. A 250 ms timer does the same while rAF is paused in a background tab. Grading itself only uses press timestamps, so rendering speed doesn't affect results.
@@ -285,7 +294,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - **Streaks** count clean attempts in a row; best streak is kept too.
   - The first-input start step shows how many times it started an attempt instead of a rate.
 - **Session = this combo, unchanged:** stats stay in memory across page switches while the practiced combo is unchanged. Editing it, opening another combo, Reset stats, or reloading the page starts a new session. Stats are not saved to storage.
-- **Strict mode** is a checkbox on the practice page (default on). It's kept in memory only for now; saving settings comes with the Layer 5 settings work (calibration, remapping). Changing it arms a fresh attempt and keeps the stats.
+- **Strict mode** is a checkbox on the practice page (default on). It's kept in memory only for now; saving settings comes with the Layer 5 settings work (calibration, remapping). Changing it arms a fresh attempt and keeps the stats. (Superseded: saved in `uct.settings.v1`, see Layer 5 Part A.)
 - **Mappings:** the practice page lists the current keyboard bindings and links to the Controls page (see "Input remapping").
 - **Gamepad resolution warning** (§5) shows on the practice page when a pad is connected and the measured poll interval is about one frame or coarser at the combo's fps.
 - **Feedback text:**
@@ -305,6 +314,40 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Every page uses the saved mapping:** practice, controls and the debug page (whose table is now "Current mapping"). A page picks up the mapping when it opens.
 - **MISC1 / MISC2 buttons** (added 2026-10-30 at the user's request) cover all 8 buttons of a standard stick. Defaults: LB (4) = MISC1 and LT (6) = MISC2, the two pad buttons the 6-button layout left free (top row X/Y/RB/LB, bottom row A/B/RT/LT); keyboard P = MISC1 and ; = MISC2, continuing the U/I/O and J/K/L rows. They are ordinary button IDs, so combo steps can use them too. Users with a saved mapping keep it and bind MISC1/MISC2 themselves; reset picks up the new defaults.
 - **Restart controls** (Space, pad Start/Back) only restart while they aren't bound to a button. The practice page's restart hint lists only the ones that are free.
+
+### Layer 5 Part A: sound and countdowns (2026-10-30)
+- **Countdown replaces the 1 s quiet wait.** Every countdown has a 500 ms lead-in, then 3 beats ("3", "2", "1") 500 ms apart, then "Go!". From trigger to Go is 2 s (`COUNTDOWN_LEAD_MS`, `COUNTDOWN_BEATS`, `COUNTDOWN_BEAT_MS` in `practice/session.ts`). The lead-in keeps the result sound clear of beat 3. It also keeps a mashing player from hearing beat 3 over and over.
+- **When a countdown runs:**
+  - It starts as soon as an attempt ends (completed, missed or wrong button).
+  - In countdown start mode it also starts on any mapped press or the restart control. This covers the first attempt after opening the page, and the first attempt after changing strict mode.
+  - In first-input mode the first attempt after opening the page is armed right away, with no countdown.
+- **A press during a countdown restarts it** and isn't graded. This keeps the old mash protection (mashing out a dropped combo can't start and fail the next attempt), but now it's visible. Countdown start mode has one exception: from the last beat ("1") on, the attempt is already running with frame 0 = Go, so a slightly early press grades `EARLY` (negative frames) instead of restarting. That uses the engine's existing "`start()` may be given a future time" rule.
+- **First-input mode:** the attempt arms at Go and then waits for the first press as before. Restart (Space, pad Start/Back) still arms right away and skips the countdown (§7, "re-arm immediately").
+- **Countdown start mode:** restart abandons the attempt and starts a fresh countdown. Frame 0 is Go's scheduled time, not latency-corrected (Layer 1 rule). The engine API is unchanged.
+- **Timing is pure:** the countdown lives in `PracticeState.countdown` and is driven by timestamps, so `practicePress` catches up on countdown steps that are due even if no tick ran in between. `practiceRestart` now takes `now`. `REARM_QUIET_MS` and `lastActivityAt` are removed.
+- **Display:** a large number at the top right of the practice card shows 3 / 2 / 1 / "Go!". "Go!" stays up for one beat. In countdown mode, the status line says what to press and on which frame after Go. The timeline note says frames count from Go.
+- **Sounds:**
+  - Synthesized with Web Audio oscillators (`audio/sounds.ts`). No audio files, no dependencies.
+  - Sounds: countdown beat, Go, metronome tick, step on time, step off (early/late), attempt clean, attempt failed (missed, wrong button, or any step off), and control bound (Controls page).
+  - Which sounds play is decided by pure functions in `practice/cues.ts`. A finished attempt plays only its clean/fail sound, not also its last step's sound. The first-input start step makes no sound, since its timing isn't graded. Non-strict ignored presses make no sound.
+- **Scheduling:**
+  - Countdown beats and metronome ticks are scheduled ahead on the audio clock. A performance.now() time is converted with `ctx.currentTime + (t − performance.now()) / 1000`, so they don't jitter with the frame rate.
+  - Audio output latency isn't corrected here. Part B's calibration measures beat to press through the same path, so that latency ends up in the calibrated offset.
+  - Scheduled beats are cancelled when a countdown restarts or stops. Scheduled ticks are cancelled when their step is graded or the attempt ends.
+- **Metronome:**
+  - The tick plays at the **middle** of each target frame (`METRONOME_FRAME_POINT = 0.5`), the safest moment to press.
+  - Relative timing only knows the awaited step's tick, from the previous actual press. Absolute timing schedules every remaining step from frame 0.
+  - No tick for the first-input start step. Ticks already in the past when they become known (very short gaps) are skipped.
+- **Settings:** "Sounds" (event sounds and countdown beats) and "Metronome tick on target frames" are separate checkboxes on the practice page, with one volume slider. Both are off by default (§7). Turning one on plays a short test sound. The countdown always shows on screen; it only makes sound with Sounds on.
+- **Audio unlock:** browsers keep audio suspended until a click or key press on the page, and gamepad presses don't count. The app resumes audio on any click or key press while a sound option is on. The practice page shows a note while audio is still blocked.
+- **Saved settings:** `localStorage` key `uct.settings.v1` holds `{ version: 1, strict, sound, metronome, volume }`. This replaces Layer 4's in-memory strict mode. Nothing is stored until the first change. A missing or malformed field falls back to its own default; an unreadable value or unknown version gives all defaults (no backup copy, since nothing hard to recreate is lost). Part B will add the latency offsets here.
+- **Hear timing** (added 2026-10-30 at the user's request, after trying the Part A sounds): a button on the practice page plays the combo's expected timing.
+  - One tone per step, where a press on the middle of its target frame would land (the metronome point). Relative steps follow the previous expected press; absolute steps count from frame 0. The first-input start step is frame 0. Countdown combos play the 3 beats and Go first, with Go as frame 0. A 300 ms lead-in comes before the first sound.
+  - Each step card is outlined while its tone plays.
+  - It plays even with Sounds off, since the user asked to hear it. Volume still applies. Clicking again restarts it.
+  - Any button press stops it, so its tones don't mix with an attempt. It doesn't change the practice state.
+  - The schedule is a pure function (`timingPreview` in `practice/cues.ts`) and is unit tested. A new `press` tone is used for the steps.
+- **Editor:** the countdown start-mode hint no longer says it's coming in Layer 5, and the practice page runs countdown combos instead of showing a message.
 
 ### Tooling (2026-10-29)
 - **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.

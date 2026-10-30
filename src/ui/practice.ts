@@ -21,11 +21,17 @@ import {
   type InputPress,
 } from '../input';
 import {
-  REARM_QUIET_MS,
   buildTimeline,
+  countdownBeatTimes,
+  countdownGoAt,
+  countdownShown,
   createPractice,
   describeAttempt,
   describeStep,
+  metronomeTicks,
+  practiceCues,
+  timingPreview,
+  type PreviewSound,
   practicePress,
   practiceRestart,
   practiceTick,
@@ -34,22 +40,32 @@ import {
   rulerStep,
   shownAttempt,
   summarizeStep,
+  waitingToStart,
+  type Countdown,
   type PracticeState,
   type SessionStats,
 } from '../practice';
+import type { ScheduledSound, SoundPlayer } from '../audio/sounds';
+import type { AppSettings } from '../storage/settings';
 import { el } from './dom';
 import type { EditorSession } from './editor';
+
+/** The app's saved settings, shared by every page. */
+export interface SettingsHolder {
+  current: AppSettings;
+  /** Saves and makes `settings` current. */
+  save(settings: AppSettings): void;
+}
 
 /** Practice state that outlives the page, so stats survive a trip to another page. */
 export interface PracticeMemory {
   /** The combo the stats belong to. Stats reset when the practiced combo changes. */
   combo: Combo | null;
   stats: SessionStats | null;
-  strict: boolean;
 }
 
 export function newPracticeMemory(): PracticeMemory {
-  return { combo: null, stats: null, strict: DEFAULT_SETTINGS.strict };
+  return { combo: null, stats: null };
 }
 
 /** Unmapped controls that re-arm immediately: Space, or Back / Start on a standard pad. */
@@ -84,24 +100,21 @@ export function renderPracticePage(
   editor: EditorSession,
   memory: PracticeMemory,
   mapping: InputMapping,
+  app: SettingsHolder,
+  sound: SoundPlayer,
 ): () => void {
   const combo = cloneCombo(editor.draft);
   const header = el('header', {}, [
     el('h2', { className: 'page-title', textContent: `Practice: ${combo.name || 'untitled combo'}` }),
     el('p', {
       className: 'sub',
-      textContent: `${combo.steps.length} step${combo.steps.length === 1 ? '' : 's'} · ${combo.fps} fps · ${combo.timingMode} timing`,
+      textContent: `${combo.steps.length} step${combo.steps.length === 1 ? '' : 's'} · ${combo.fps} fps · ${combo.timingMode} timing · ${combo.startMode === 'countdown' ? 'countdown start' : 'starts on first input'}`,
     }),
   ]);
 
-  // Combos this page can't run yet get a message instead of a practice view.
+  // Invalid combos get a message instead of a practice view.
   const problems = validateCombo(combo);
-  const blocker =
-    problems.length > 0
-      ? `This combo has problems to fix in the editor first: ${problems.join('; ')}.`
-      : combo.startMode === 'countdown'
-        ? 'Countdown start is set for this combo. Practicing with a countdown arrives in Layer 5; switch the start mode to “First input” in the editor to practice it now.'
-        : null;
+  const blocker = problems.length > 0 ? `This combo has problems to fix in the editor first: ${problems.join('; ')}.` : null;
   if (blocker) {
     root.replaceChildren(
       header,
@@ -113,20 +126,37 @@ export function renderPracticePage(
     return () => {};
   }
 
-  const settings = (): Settings => ({ ...DEFAULT_SETTINGS, strict: memory.strict });
+  const settings = (): Settings => ({ ...DEFAULT_SETTINGS, strict: app.current.strict });
+  const isCountdown = combo.startMode === 'countdown';
   const keepStats = memory.combo !== null && memory.stats !== null && combosEqual(memory.combo, combo);
   let state: PracticeState = createPractice(combo, settings(), keepStats ? (memory.stats ?? undefined) : undefined);
   memory.combo = combo;
   memory.stats = state.stats;
 
   // --- elements -----------------------------------------------------------
-  const strictBox = el('input', { type: 'checkbox', checked: memory.strict });
+  const strictBox = el('input', { type: 'checkbox', checked: app.current.strict });
+  const soundBox = el('input', { type: 'checkbox', checked: app.current.sound });
+  const metronomeBox = el('input', { type: 'checkbox', checked: app.current.metronome });
+  const volumeSlider = el('input', {
+    type: 'range',
+    min: '0',
+    max: '1',
+    step: '0.05',
+    value: String(app.current.volume),
+    ariaLabel: 'Volume',
+  });
+  const soundNote = el('p', { className: 'hint', hidden: true });
+  const countdownBox = el('div', { className: 'countdown', ariaHidden: 'true' });
   const restartNames = freeRestartNames(mapping);
   const restartBtn = el('button', {
     type: 'button',
     textContent: restartNames.includes('Space') ? 'Restart (Space)' : 'Restart',
   });
-  const restartHint = restartNames.length ? `, or press ${restartNames.join(' / ')}` : '';
+  const previewBtn = el('button', {
+    type: 'button',
+    textContent: 'Hear timing',
+    title: 'Play a tone where each press should land',
+  });
   const statusLine = el('p', { className: 'practice-status', role: 'status' });
   const stepRow = el('ol', { className: 'practice-steps' });
   const gamepadWarning = el('p', { className: 'warning', hidden: true });
@@ -141,9 +171,22 @@ export function renderPracticePage(
     el('section', { className: 'controls' }, [
       el('label', { className: 'check' }, [strictBox, ' Strict mode (a wrong button ends the attempt)']),
       restartBtn,
+      previewBtn,
       el('a', { href: '#', textContent: 'Edit combo' }),
     ]),
-    el('section', { className: 'card' }, [statusLine, stepRow, gamepadWarning, el('p', { className: 'hint' }, keyHint(mapping))]),
+    el('section', { className: 'controls sound-controls' }, [
+      el('label', { className: 'check' }, [soundBox, ' Sounds']),
+      el('label', { className: 'check' }, [metronomeBox, ' Metronome tick on target frames']),
+      el('label', { className: 'volume' }, ['Volume ', volumeSlider]),
+    ]),
+    soundNote,
+    el('section', { className: 'card practice-card' }, [
+      countdownBox,
+      statusLine,
+      stepRow,
+      gamepadWarning,
+      el('p', { className: 'hint' }, keyHint(mapping)),
+    ]),
     el('section', { className: 'card' }, [el('h2', { textContent: 'Last attempt' }), timelineBox, timelineNote]),
     el('section', { className: 'card' }, [
       el('div', { className: 'card-head' }, [el('h2', { textContent: 'Session stats' }), resetBtn]),
@@ -182,10 +225,19 @@ export function renderPracticePage(
     const nextStep = next !== null ? combo.steps[next] : undefined;
     let text: string;
     let cls = '';
+    const names = restartNames.join(' / ');
+    const firstStep = combo.steps[0];
+    const goTarget = firstStep ? `${stepName(firstStep.button, firstStep.label)} on frame ${firstStep.targetFrame} after Go` : '';
     if (a.phase === 'done') {
       const result = attemptResult(a);
-      text = `${result ? describeAttempt(result) : 'Done.'} Next attempt in ${REARM_QUIET_MS / 1000} s without input${restartHint}.`;
+      const skip = !isCountdown && names ? `; ${names} skips it` : '';
+      text = `${result ? describeAttempt(result) : 'Done.'} Next attempt after the countdown. Pressing a button restarts the countdown${skip}.`;
       cls = result?.success ? 'success' : 'fail';
+    } else if (state.countdown !== null) {
+      // Countdown mode before Go (the attempt is already live during the last beat).
+      text = `Get ready: press ${goTarget}. Pressing a button before the last beat restarts the countdown.`;
+    } else if (waitingToStart(state)) {
+      text = `Press any button${names ? ` or ${names}` : ''} to start the countdown, then press ${goTarget}.`;
     } else if (a.phase === 'armed' && nextStep) {
       text = `Ready. Press ${stepName(nextStep.button, nextStep.label)} to start.`;
     } else if (nextStep) {
@@ -294,7 +346,7 @@ export function renderPracticePage(
       el('div', { className: 'tl-lane ruler' }, [el('span', { className: 'tl-name', textContent: 'Frame' }), el('div', { className: 'tl-track' }, ticks)]),
     );
     const result = attemptResult(attempt);
-    timelineNote.textContent = `${result ? describeAttempt(result) : ''} Shaded: on-time window. Line: target frame. Dot: your press. Frames count from the first press at ${tl.fps} fps (1 frame = ${fmt(frameMs(tl.fps), 2)} ms).`;
+    timelineNote.textContent = `${result ? describeAttempt(result) : ''} Shaded: on-time window. Line: target frame. Dot: your press. Frames count from ${isCountdown ? 'Go' : 'the first press'} at ${tl.fps} fps (1 frame = ${fmt(frameMs(tl.fps), 2)} ms).`;
   }
 
   function renderStats() {
@@ -319,16 +371,121 @@ export function renderPracticePage(
     );
   }
 
+  // --- sound and countdown display ----------------------------------------
+  let beatSounds: ScheduledSound[] = [];
+  let beatsFor: Countdown | null = null;
+  const tickSounds = new Map<string, ScheduledSound>();
+  /** The last countdown, kept after "Go" so "Go!" stays up for a beat. */
+  let shownCountdown: Countdown | null = null;
+
+  function scheduleSounds(prev: PracticeState, next: PracticeState) {
+    const opts = app.current;
+    if (opts.sound) for (const cue of practiceCues(prev, next)) sound.play(cue);
+
+    if (next.countdown !== beatsFor) {
+      for (const b of beatSounds) b.cancel();
+      beatSounds = [];
+      beatsFor = next.countdown;
+      if (beatsFor && opts.sound) {
+        const times = countdownBeatTimes(beatsFor);
+        beatSounds = times.map((t, i) => sound.play(i === times.length - 1 ? 'go' : 'beat', t));
+      }
+    }
+
+    // Ticks no longer expected (step already graded, attempt over) are cancelled.
+    const ticks = opts.metronome ? metronomeTicks(next.attempt) : [];
+    const keep = new Set(ticks.map((t) => t.key));
+    for (const [key, s] of tickSounds) {
+      if (!keep.has(key)) {
+        s.cancel();
+        tickSounds.delete(key);
+      }
+    }
+    const now = performance.now();
+    for (const t of ticks) {
+      if (!tickSounds.has(t.key) && t.at >= now) tickSounds.set(t.key, sound.play('tick', t.at));
+    }
+  }
+
+  function stopSounds() {
+    for (const b of beatSounds) b.cancel();
+    beatSounds = [];
+    beatsFor = null;
+    for (const s of tickSounds.values()) s.cancel();
+    tickSounds.clear();
+  }
+
+  function renderCountdown(now: number) {
+    if (state.countdown) shownCountdown = state.countdown;
+    else if (shownCountdown && now < countdownGoAt(shownCountdown)) shownCountdown = null; // cancelled, not finished
+    const beat = countdownShown(shownCountdown, now);
+    const text = beat === null ? '' : beat === 0 ? 'Go!' : String(beat);
+    if (countdownBox.textContent !== text) {
+      countdownBox.textContent = text;
+      countdownBox.classList.toggle('go', beat === 0);
+    }
+  }
+
+  function renderSoundNote() {
+    const wantsSound = app.current.sound || app.current.metronome;
+    soundNote.hidden = !(wantsSound && sound.blocked);
+    soundNote.textContent = 'The browser holds sound back until you click the page or press a key (gamepad buttons don’t count).';
+  }
+
+  /** Moves to a new state: plays its sounds and redraws. */
+  function update(next: PracticeState) {
+    if (next === state) return;
+    const prev = state;
+    state = next;
+    scheduleSounds(prev, next);
+    render();
+  }
+
+  // --- timing preview -----------------------------------------------------
+  /** How long a step card stays lit when its preview tone plays. */
+  const PREVIEW_FLASH_MS = 150;
+  let preview: { startAt: number; sounds: PreviewSound[]; handles: ScheduledSound[] } | null = null;
+
+  /** Plays the combo's expected timing. Works with Sounds off: the user asked to hear it. */
+  function startPreview() {
+    stopPreview();
+    sound.unlock();
+    const startAt = performance.now();
+    const sounds = timingPreview(combo);
+    preview = { startAt, sounds, handles: sounds.map((p) => sound.play(p.kind, startAt + p.at)) };
+  }
+
+  function stopPreview() {
+    if (!preview) return;
+    for (const h of preview.handles) h.cancel();
+    preview = null;
+    renderPreview(performance.now());
+  }
+
+  /** Lights up each step card as its preview tone plays. */
+  function renderPreview(now: number) {
+    const lit = new Set<number>();
+    if (preview) {
+      const elapsed = now - preview.startAt;
+      for (const p of preview.sounds) {
+        if (p.stepIndex !== undefined && elapsed >= p.at && elapsed < p.at + PREVIEW_FLASH_MS) lit.add(p.stepIndex);
+      }
+      const last = preview.sounds[preview.sounds.length - 1];
+      if (!last || elapsed > last.at + PREVIEW_FLASH_MS) preview = null;
+    }
+    [...stepRow.children].forEach((li, i) => li.classList.toggle('previewing', lit.has(i)));
+  }
+
   // --- input --------------------------------------------------------------
   const onPress = (press: InputPress) => {
+    // Playing the combo stops the preview, so its tones don't mix with the attempt.
+    stopPreview();
     if (isRestart(press)) {
-      state = practiceRestart(state);
+      update(practiceRestart(state, press.timestamp));
     } else {
       const ev = toPressEvent(press);
-      if (!ev) return;
-      state = practicePress(state, ev);
+      if (ev) update(practicePress(state, ev));
     }
-    render();
   };
 
   // Space would otherwise scroll the page or click the focused button.
@@ -343,17 +500,20 @@ export function renderPracticePage(
   const deps = browserPollerDeps();
   const poller = startGamepadPolling({ tracker, mode: DEFAULT_POLL_MODE, onPress, deps });
 
-  // Ticks drive MISSED and the auto re-arm. Grading itself uses the press timestamps.
+  // Ticks drive the countdown and MISSED. Grading itself uses the press timestamps.
+  const onTick = () => {
+    const now = performance.now();
+    update(practiceTick(state, now));
+    renderCountdown(now);
+    renderSoundNote();
+    renderPreview(now);
+  };
   let frame = requestAnimationFrame(function loop() {
-    state = practiceTick(state, performance.now());
-    render();
+    onTick();
     frame = requestAnimationFrame(loop);
   });
-  // rAF pauses in background tabs; a slow timer keeps misses and re-arming going there.
-  const backupTick = window.setInterval(() => {
-    state = practiceTick(state, performance.now());
-    render();
-  }, 250);
+  // rAF pauses in background tabs; a slow timer keeps the countdown and misses going there.
+  const backupTick = window.setInterval(onTick, 250);
 
   // SPEC §5: warn when gamepad timing is coarser than about one target frame.
   const checkResolution = () => {
@@ -368,27 +528,52 @@ export function renderPracticePage(
   const resolutionTimer = window.setInterval(checkResolution, 1000);
 
   // --- controls -----------------------------------------------------------
+  const saveApp = (change: Partial<AppSettings>) => app.save({ ...app.current, ...change });
   strictBox.addEventListener('change', () => {
-    memory.strict = strictBox.checked;
-    state = practiceWithSettings(state, settings());
+    saveApp({ strict: strictBox.checked });
     strictBox.blur();
-    render();
+    update(practiceWithSettings(state, settings()));
+  });
+  const onSoundChange = () => {
+    saveApp({ sound: soundBox.checked, metronome: metronomeBox.checked });
+    soundBox.blur();
+    metronomeBox.blur();
+    sound.unlock();
+    // Reschedule from scratch so turning sound off silences what's already queued.
+    stopSounds();
+    scheduleSounds(state, state);
+    if (soundBox.checked) sound.play('onTime');
+  };
+  soundBox.addEventListener('change', onSoundChange);
+  metronomeBox.addEventListener('change', onSoundChange);
+  volumeSlider.addEventListener('input', () => {
+    sound.volume = Number(volumeSlider.value);
+  });
+  volumeSlider.addEventListener('change', () => {
+    saveApp({ volume: Number(volumeSlider.value) });
+    volumeSlider.blur();
+    if (app.current.sound || app.current.metronome) sound.play('onTime');
+  });
+  previewBtn.addEventListener('click', () => {
+    previewBtn.blur();
+    startPreview();
   });
   restartBtn.addEventListener('click', () => {
-    state = practiceRestart(state);
     restartBtn.blur();
-    render();
+    update(practiceRestart(state, performance.now()));
   });
   resetBtn.addEventListener('click', () => {
-    state = resetStats(state);
     resetBtn.blur();
-    lastRendered = null;
-    render();
+    lastRendered = null; // redraw everything, including clearing the timeline
+    update(resetStats(state));
   });
 
   render();
+  renderSoundNote();
 
   return () => {
+    stopPreview();
+    stopSounds();
     cancelAnimationFrame(frame);
     window.clearInterval(backupTick);
     window.clearInterval(resolutionTimer);

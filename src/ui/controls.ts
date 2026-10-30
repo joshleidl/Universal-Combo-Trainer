@@ -33,7 +33,8 @@ export interface MappingHolder {
 /** Keys that keep their usual job while binding: Escape cancels, Tab moves focus. */
 const RESERVED_KEYS = new Set(['Escape', 'Tab']);
 
-export function renderControlsPage(root: HTMLElement, holder: MappingHolder): () => void {
+/** `onBound` runs after each new binding (the app plays a sound if sounds are on). */
+export function renderControlsPage(root: HTMLElement, holder: MappingHolder, onBound: () => void = () => {}): () => void {
   let listeningFor: ButtonId | null = null;
 
   const statusLine = el('p', { className: 'controls-status', role: 'status' });
@@ -171,6 +172,7 @@ export function renderControlsPage(root: HTMLElement, holder: MappingHolder): ()
       listeningFor = null;
       apply(bindControl(holder.current, ref, target));
       flash(target);
+      onBound();
       setStatus(
         previous && previous !== target
           ? `Bound ${label} to ${target} (moved from ${previous}).`

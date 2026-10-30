@@ -1,11 +1,13 @@
 import './style.css';
+import { SoundPlayer } from './audio/sounds';
 import { ComboStore, memoryStorage, type StorageLike } from './storage/combos';
 import { loadMapping, resetMapping, saveMapping } from './storage/mapping';
+import { loadSettings, saveSettings } from './storage/settings';
 import { renderControlsPage, type MappingHolder } from './ui/controls';
 import { renderDebugPage } from './ui/debug';
 import { el } from './ui/dom';
 import { initialSession, renderEditorPage } from './ui/editor';
-import { newPracticeMemory, renderPracticePage } from './ui/practice';
+import { newPracticeMemory, renderPracticePage, type SettingsHolder } from './ui/practice';
 
 /** localStorage, or an in-memory stand-in when the browser blocks it (e.g. some private modes). */
 function openStorage(): { storage: StorageLike; persistent: boolean } {
@@ -36,10 +38,28 @@ if (app) {
     },
   };
 
+  const settings: SettingsHolder = {
+    current: loadSettings(storage),
+    save(next) {
+      saveSettings(storage, next);
+      this.current = next;
+    },
+  };
+  const sound = new SoundPlayer();
+  sound.volume = settings.current.volume;
+  // Browsers only allow audio after a click or key press on the page.
+  const unlockAudio = () => {
+    if (settings.current.sound || settings.current.metronome) sound.unlock();
+  };
+  window.addEventListener('pointerdown', unlockAudio, true);
+  window.addEventListener('keydown', unlockAudio, true);
+
   const routes = {
     editor: { hash: '#', label: 'Combos', render: (root: HTMLElement) => renderEditorPage(root, store, session) },
-    practice: { hash: '#practice', label: 'Practice', render: (root: HTMLElement) => renderPracticePage(root, session, practice, controls.current) },
-    controls: { hash: '#controls', label: 'Controls', render: (root: HTMLElement) => renderControlsPage(root, controls) },
+    practice: { hash: '#practice', label: 'Practice', render: (root: HTMLElement) => renderPracticePage(root, session, practice, controls.current, settings, sound) },
+    controls: { hash: '#controls', label: 'Controls', render: (root: HTMLElement) => renderControlsPage(root, controls, () => {
+      if (settings.current.sound) sound.play('bound');
+    }) },
     debug: { hash: '#debug', label: 'Input debug', render: (root: HTMLElement) => renderDebugPage(root, controls.current) },
   } as const;
   type Route = keyof typeof routes;
