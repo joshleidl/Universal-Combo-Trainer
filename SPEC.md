@@ -215,6 +215,9 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 
 ## Backlog
 - ~~Countdown before each attempt~~ and ~~basic sound feedback for app events~~ (requested 2026-10-30, Layer 4 review): done in Layer 5 Part A, see the Decisions log.
+- **Hear the on-time window in Hear timing** (possible feature, requested and then shelved 2026-10-30). Let the timing preview also convey each step's wiggle room, not just its target moment.
+  - Tried: an optional sustained tone spanning each step's on-time window (from the start of frame `target − tolEarly` to the end of frame `target + tolLate`), playing under the press tone, with a dashed outline on the step card during the window. Steps with no tolerance got no window tone. The user wasn't happy with how it turned out and it was removed before committing.
+  - Sound settings tried: a 370 Hz triangle at level 0.3 (too loud, too deep), then a 622 Hz sine at 0.12, a minor third below the 740 Hz press tone. The idea may need a different approach rather than a different tone, e.g. two short ticks marking the window's edges, or a visual-only window.
 - **Advanced combo-building mode** (requested 2026-10-30, after the Layer 3 review). An optional editor mode for steps that need more than one button press:
   - **Release events as steps:** grade the timing of a button release, not only presses (e.g. negative-edge inputs, or holding a button for a set number of frames). The input layer already emits releases (see Decisions log, "Release events").
   - **Grouped inputs:** a step made of several inputs. They can be *sequential*, like a motion input (quarter-circle forward = DOWN, DOWN+RIGHT, RIGHT, then a button), or *simultaneous*, like a chord (two buttons within a few frames of each other).
