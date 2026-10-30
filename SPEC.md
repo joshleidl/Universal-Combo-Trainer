@@ -184,11 +184,8 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - Transcripts are not committed to the repo.
 - If the backup fails (e.g. the folder isn't reachable), the commit stands. Claude reports the failure instead of retrying silently.
 
-## Next session (noted 2026-10-29)
-1. **Show button release events on the debug page**, alongside press events, for keyboard keys, gamepad buttons, axis directions and hat directions. Notes for the design:
-   - Grading is unchanged: only press edges are graded (§3 Input rules). Releases are for display and diagnostics, so the engine does not change.
-   - The trackers already know when a key/button/direction goes up (keyup, held sets). The open question is the event shape: either an `edge: 'press' | 'release'` field on input events, or a separate release callback. Pick the simplest option, keep `toPressEvent()` press-only, and log the choice.
-   - In the log, show hold duration (release − press), in ms and frames.
+## Next session
+- Nothing queued. Release events on the debug page were done and confirmed on hardware on 2026-10-30 (see Decisions log). Layer 3 is next.
 
 ## Decisions log
 
@@ -221,6 +218,14 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Resolution warning** shows when resolution ≥ 0.9 × one target frame, so 60 Hz polling at 60 fps warns even though intervals jitter just under 16.67 ms.
 - **Remapping** is pure helper functions for now (`bindKey`, `unbindKey`, `bindGamepadButton`, `unbindGamepadButton`). A remap UI and saving mappings come with Layer 5.
 - **The debug page is the app's home page** until the editor and practice views exist.
+
+### Release events (2026-10-30)
+- **Event shape:** input events carry `edge: 'press' | 'release'`. `InputEvent` is the union of `InputPress` and `InputRelease`, so code can narrow on `edge`. `KeyboardTracker.keyUp()` returns a release; `GamepadTracker.poll()` returns both edges.
+- **Callbacks:** `attachKeyboard` and `startGamepadPolling` keep sending only presses to `onPress`, and send releases to a new optional `onRelease`. Anything wired for presses can't get a release by accident.
+- **`toPressEvent()`** returns null for releases as well as unmapped controls. Grading and the engine are unchanged.
+- **Keyboard:** a keyup only counts as a release if its press was reported. Keys held across a window blur (held set cleared) or pressed with Ctrl/Cmd/Alt give no release.
+- **Gamepad:** releases use the same timestamp rules as presses. A button held when the pad is first seen gives no press but does give a release. A pad that disconnects gives no releases. Axis directions release below the 0.4 hysteresis threshold, and hat diagonals release one direction at a time.
+- **Debug log:** one row per edge, with an Edge column. "Since last press" is press-to-press only. Releases show hold time (release − press) in ms and frames (floored, like grading), or "—" when the press wasn't seen. Clearing the log keeps the press times of held controls.
 
 ### Tooling (2026-10-29)
 - **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.

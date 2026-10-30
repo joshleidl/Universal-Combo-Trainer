@@ -1,7 +1,7 @@
 // Raw key / gamepad button → button ID. Pure and user-remappable (SPEC §5).
 
 import type { ButtonId, PressEvent } from '../engine/types';
-import type { InputPress } from './types';
+import type { InputEvent } from './types';
 
 export const BUTTON_IDS = ['LP', 'MP', 'HP', 'LK', 'MK', 'HK', 'UP', 'DOWN', 'LEFT', 'RIGHT'] as const;
 
@@ -199,8 +199,8 @@ export function unbindGamepadButton(mapping: InputMapping, index: number): Input
   return { ...mapping, gamepad: rest };
 }
 
-/** The engine's press shape, or null for an unmapped control. */
-export function toPressEvent(press: InputPress): PressEvent | null {
-  if (press.button === null) return null;
+/** The engine's press shape, or null for an unmapped control or a release. */
+export function toPressEvent(press: InputEvent): PressEvent | null {
+  if (press.edge !== 'press' || press.button === null) return null;
   return { button: press.button, timestamp: press.timestamp, source: press.source };
 }

@@ -1,8 +1,8 @@
-// Common press shape emitted by every input source (SPEC §4–5).
+// Common input event shape emitted by every input source (SPEC §4–5).
 
 import type { ButtonId, InputSource } from '../engine/types';
 
-/** Where a press timestamp came from. */
+/** Where an event timestamp came from. */
 export type TimestampSource =
   /** KeyboardEvent.timeStamp */
   | 'event'
@@ -11,7 +11,11 @@ export type TimestampSource =
   /** performance.now() at poll time (fallback) */
   | 'poll';
 
-export interface InputPress {
+/** Press = control goes from up to down; release = down to up. Only presses are graded. */
+export type InputEdge = 'press' | 'release';
+
+interface InputEventBase {
+  edge: InputEdge;
   source: InputSource;
   /** Mapped button, or null when the control isn't mapped. */
   button: ButtonId | null;
@@ -20,6 +24,10 @@ export interface InputPress {
   /** Milliseconds in the performance.now() clock. */
   timestamp: number;
   timestampSource: TimestampSource;
-  /** Which gamepad, for gamepad presses. */
+  /** Which gamepad, for gamepad events. */
   gamepadIndex?: number;
 }
+
+export type InputPress = InputEventBase & { edge: 'press' };
+export type InputRelease = InputEventBase & { edge: 'release' };
+export type InputEvent = InputPress | InputRelease;

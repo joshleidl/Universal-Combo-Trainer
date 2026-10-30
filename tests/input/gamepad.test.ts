@@ -9,7 +9,7 @@ import {
   type PollerDeps,
 } from '../../src/input/gamepad';
 import { DEFAULT_MAPPING, removeGamepadHat } from '../../src/input/mapping';
-import type { InputPress } from '../../src/input/types';
+import type { InputPress, InputRelease } from '../../src/input/types';
 
 /** A pad with 17 buttons and 4 axes; `held` lists pressed button indices. */
 function pad(timestamp: number, held: number[] = [], index = 0, axes: number[] = [0, 0, 0, 0]): GamepadLike {
@@ -24,15 +24,23 @@ function pad(timestamp: number, held: number[] = [], index = 0, axes: number[] =
   };
 }
 
+/** Wraps a tracker so poll() returns presses only, for tests about press edges. */
+function pressesOnly(t: GamepadTracker) {
+  return {
+    poll: (...args: Parameters<GamepadTracker['poll']>) => t.poll(...args).filter((e) => e.edge === 'press'),
+  };
+}
+
 /** Same pad, only axes differ. */
 const stick = (timestamp: number, axes: number[]) => pad(timestamp, [], 0, axes);
 
 describe('GamepadTracker axes', () => {
   it('turns left-stick directions into mapped presses', () => {
-    const t = new GamepadTracker(DEFAULT_MAPPING);
+    const t = pressesOnly(new GamepadTracker(DEFAULT_MAPPING));
     t.poll([stick(1, [0, 0])], 2);
     expect(t.poll([stick(5, [-1, 0])], 6)).toEqual([
       {
+        edge: 'press',
         source: 'gamepad',
         button: 'LEFT',
         control: 'Axis 0-',
@@ -46,7 +54,7 @@ describe('GamepadTracker axes', () => {
   });
 
   it('ignores holds and reports a diagonal as two presses', () => {
-    const t = new GamepadTracker(DEFAULT_MAPPING);
+    const t = pressesOnly(new GamepadTracker(DEFAULT_MAPPING));
     t.poll([stick(1, [0, 0])], 2);
     expect(t.poll([stick(5, [-1, 1])], 6).map((p) => p.button)).toEqual(['LEFT', 'DOWN']);
     expect(t.poll([stick(9, [-1, 1])], 10)).toHaveLength(0);
@@ -57,7 +65,7 @@ describe('GamepadTracker axes', () => {
   });
 
   it('uses hysteresis so values near the threshold do not chatter', () => {
-    const t = new GamepadTracker(DEFAULT_MAPPING);
+    const t = pressesOnly(new GamepadTracker(DEFAULT_MAPPING));
     t.poll([stick(1, [0, 0])], 2);
     expect(t.poll([stick(2, [-0.49, 0])], 3)).toHaveLength(0); // below press threshold
     expect(t.poll([stick(3, [-0.5, 0])], 4)).toHaveLength(1); // pressed
@@ -74,7 +82,7 @@ describe('GamepadTracker axes', () => {
   });
 
   it('treats axes already deflected on first sight as held (e.g. a trigger resting at -1)', () => {
-    const t = new GamepadTracker(DEFAULT_MAPPING);
+    const t = pressesOnly(new GamepadTracker(DEFAULT_MAPPING));
     expect(t.poll([stick(1, [0, 0, 0, 0, -1])], 2)).toHaveLength(0);
     expect(t.poll([stick(5, [0, 0, 0, 0, -1])], 6)).toHaveLength(0);
     expect(t.poll([stick(9, [0, 0, 0, 0, 1])], 10).map((p) => p.control)).toEqual(['Axis 4+']);
@@ -98,6 +106,7 @@ describe('GamepadTracker hat switch', () => {
     t.poll([hat(1, NEUTRAL)], 2);
     expect(t.poll([hat(5, -1)], 6)).toEqual([
       {
+        edge: 'press',
         source: 'gamepad',
         button: 'UP',
         control: 'Hat 9 up',
@@ -109,7 +118,7 @@ describe('GamepadTracker hat switch', () => {
   });
 
   it('reports a diagonal as two presses and ignores holds', () => {
-    const t = new GamepadTracker(DEFAULT_MAPPING);
+    const t = pressesOnly(new GamepadTracker(DEFAULT_MAPPING));
     t.poll([hat(1, NEUTRAL)], 2);
     expect(t.poll([hat(5, -0.14)], 6).map((p) => p.button)).toEqual(['DOWN', 'RIGHT']); // numpad 3
     expect(t.poll([hat(9, -0.14)], 10)).toHaveLength(0);
@@ -118,7 +127,7 @@ describe('GamepadTracker hat switch', () => {
   });
 
   it('a quarter-circle forward (2, 3, 6) presses DOWN, RIGHT, then nothing new', () => {
-    const t = new GamepadTracker(DEFAULT_MAPPING);
+    const t = pressesOnly(new GamepadTracker(DEFAULT_MAPPING));
     t.poll([hat(1, NEUTRAL)], 2);
     const seq = [0.14, -0.14, -0.43].map((v, i) => t.poll([hat(5 + i * 4, v)], 6 + i * 4));
     expect(seq.map((ps) => ps.map((p) => p.button))).toEqual([['DOWN'], ['RIGHT'], []]);
@@ -157,6 +166,7 @@ describe('GamepadTracker press edges', () => {
     const presses = t.poll([pad(110, [2])], 116);
     expect(presses).toEqual([
       {
+        edge: 'press',
         source: 'gamepad',
         button: 'LP',
         control: 'Button 2',
@@ -168,7 +178,7 @@ describe('GamepadTracker press edges', () => {
   });
 
   it('ignores holds', () => {
-    const t = new GamepadTracker(DEFAULT_MAPPING);
+    const t = pressesOnly(new GamepadTracker(DEFAULT_MAPPING));
     t.poll([pad(100)], 100);
     expect(t.poll([pad(110, [2])], 116)).toHaveLength(1);
     expect(t.poll([pad(120, [2])], 133)).toHaveLength(0);
@@ -210,6 +220,66 @@ describe('GamepadTracker press edges', () => {
     expect(t.poll([pad(130, [2])], 133)).toHaveLength(0);
     const gone = { ...pad(140, [2]), connected: false };
     expect(t.poll([gone], 150)).toHaveLength(0);
+  });
+});
+
+describe('GamepadTracker release edges', () => {
+  it('emits a release when a button goes from down to up', () => {
+    const t = new GamepadTracker(DEFAULT_MAPPING);
+    t.poll([pad(100)], 100);
+    t.poll([pad(110, [2])], 116);
+    expect(t.poll([pad(120, [2])], 133)).toHaveLength(0); // hold
+    expect(t.poll([pad(150, [])], 150)).toEqual([
+      {
+        edge: 'release',
+        source: 'gamepad',
+        button: 'LP',
+        control: 'Button 2',
+        timestamp: 150,
+        timestampSource: 'gamepad',
+        gamepadIndex: 0,
+      },
+    ]);
+  });
+
+  it('reports a press and a release in the same poll', () => {
+    const t = new GamepadTracker(DEFAULT_MAPPING);
+    t.poll([pad(100, [2])], 100);
+    const events = t.poll([pad(110, [0])], 116);
+    expect(events.map((e) => [e.edge, e.control])).toEqual([
+      ['press', 'Button 0'],
+      ['release', 'Button 2'],
+    ]);
+  });
+
+  it('reports the release of a button held on first sight', () => {
+    const t = new GamepadTracker(DEFAULT_MAPPING);
+    t.poll([pad(100, [2])], 100);
+    expect(t.poll([pad(110)], 116).map((e) => e.edge)).toEqual(['release']);
+  });
+
+  it('releases axis directions using the release threshold', () => {
+    const t = new GamepadTracker(DEFAULT_MAPPING);
+    t.poll([stick(1, [0, 0])], 2);
+    t.poll([stick(2, [-1, 0])], 3);
+    expect(t.poll([stick(3, [-0.45, 0])], 4)).toHaveLength(0);
+    expect(t.poll([stick(4, [-0.39, 0])], 5)).toMatchObject([{ edge: 'release', button: 'LEFT', control: 'Axis 0-' }]);
+  });
+
+  it('releases hat directions, one at a time on a diagonal', () => {
+    const t = new GamepadTracker(DEFAULT_MAPPING);
+    const hat = (ts: number, v: number) => stick(ts, [0, 0, 0, 0, 0, 0, 0, 0, 0, v]);
+    t.poll([hat(1, 3.29)], 2);
+    t.poll([hat(5, -0.14)], 6); // DOWN + RIGHT
+    expect(t.poll([hat(9, 0.14)], 10).map((e) => [e.edge, e.button])).toEqual([['release', 'RIGHT']]);
+    expect(t.poll([hat(13, 3.29)], 14).map((e) => [e.edge, e.button])).toEqual([['release', 'DOWN']]);
+  });
+
+  it('a disconnected pad reports no releases', () => {
+    const t = new GamepadTracker(DEFAULT_MAPPING);
+    t.poll([pad(100)], 100);
+    t.poll([pad(110, [2])], 116);
+    expect(t.poll([null], 133)).toHaveLength(0);
   });
 });
 
@@ -378,6 +448,25 @@ describe('startGamepadPolling', () => {
     handle.stop();
     expect(fake.active()).toBe(false);
     expect(fake.subscribed()).toBe(false);
+  });
+
+  it('sends presses to onPress and releases to onRelease', () => {
+    const fake = fakeDeps([[pad(1)], [pad(2, [2])], [pad(3)]], false);
+    const presses: InputPress[] = [];
+    const releases: InputRelease[] = [];
+    const handle = startGamepadPolling({
+      tracker: new GamepadTracker(DEFAULT_MAPPING),
+      mode: { kind: 'raf' },
+      onPress: (p) => presses.push(p),
+      onRelease: (r) => releases.push(r),
+      deps: fake.deps,
+    });
+    fake.step(16);
+    fake.step(16);
+    fake.step(16);
+    expect(presses.map((p) => p.edge)).toEqual(['press']);
+    expect(releases.map((r) => r.edge)).toEqual(['release']);
+    handle.stop();
   });
 
   it('auto: starts on animation frames when the page is not focused', () => {

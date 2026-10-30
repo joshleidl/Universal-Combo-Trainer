@@ -1,7 +1,7 @@
-// Keyboard → timestamped press edges (SPEC §5).
+// Keyboard → timestamped press and release edges (SPEC §5).
 
 import { mapKey, type InputMapping } from './mapping';
-import type { InputPress } from './types';
+import type { InputPress, InputRelease } from './types';
 
 /** The parts of a KeyboardEvent the tracker needs. */
 export interface KeyLike {
@@ -11,7 +11,7 @@ export interface KeyLike {
 }
 
 /**
- * Turns keydown/keyup into press edges. Ignores auto-repeat, and also ignores a
+ * Turns keydown/keyup into press and release edges. Ignores auto-repeat, and also ignores a
  * second keydown for a key that is still held (some setups repeat without setting `repeat`).
  */
 export class KeyboardTracker {
@@ -27,6 +27,7 @@ export class KeyboardTracker {
     if (e.repeat || this.held.has(e.code)) return null;
     this.held.add(e.code);
     return {
+      edge: 'press',
       source: 'keyboard',
       button: mapKey(this.mapping, e.code),
       control: e.code,
@@ -35,8 +36,17 @@ export class KeyboardTracker {
     };
   }
 
-  keyUp(e: Pick<KeyLike, 'code'>): void {
-    this.held.delete(e.code);
+  /** A release, only for a key whose press was reported (keys held before a reset() stay silent). */
+  keyUp(e: Pick<KeyLike, 'code' | 'timeStamp'>): InputRelease | null {
+    if (!this.held.delete(e.code)) return null;
+    return {
+      edge: 'release',
+      source: 'keyboard',
+      button: mapKey(this.mapping, e.code),
+      control: e.code,
+      timestamp: e.timeStamp,
+      timestampSource: 'event',
+    };
   }
 
   /** Forget held keys, e.g. when the window loses focus and keyups may be missed. */
@@ -48,6 +58,8 @@ export class KeyboardTracker {
 export interface KeyboardOptions {
   mapping: InputMapping;
   onPress: (press: InputPress) => void;
+  /** Optional, for diagnostics. Releases are never graded. */
+  onRelease?: (release: InputRelease) => void;
 }
 
 export interface KeyboardHandle {
@@ -69,7 +81,10 @@ export function attachKeyboard(target: EventTarget, options: KeyboardOptions): K
     const press = tracker.keyDown(e);
     if (press) options.onPress(press);
   };
-  const onKeyUp = (ev: Event) => tracker.keyUp(ev as KeyboardEvent);
+  const onKeyUp = (ev: Event) => {
+    const release = tracker.keyUp(ev as KeyboardEvent);
+    if (release) options.onRelease?.(release);
+  };
   const onBlur = () => tracker.reset();
 
   target.addEventListener('keydown', onKeyDown);

@@ -157,6 +157,10 @@ tr.unmapped td {
   color: var(--unmapped);
 }
 
+tr.release td {
+  color: var(--muted);
+}
+
 tr.empty td {
   color: var(--muted);
 }

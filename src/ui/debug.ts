@@ -1,4 +1,4 @@
-// Input debug page (Layer 2): live presses, timestamps, and gamepad polling stats.
+// Input debug page (Layer 2): live presses and releases, timestamps, and gamepad polling stats.
 // Rendering only. Timing math comes from engine/ and input/.
 
 import { frameMs, msToFrame } from '../engine/timing';
@@ -16,7 +16,9 @@ import {
   isResolutionTooCoarse,
   startGamepadPolling,
   type AxisDirection,
+  type InputEvent,
   type InputPress,
+  type InputRelease,
   type IntervalSummary,
   type PollMode,
 } from '../input';
@@ -48,6 +50,9 @@ export function renderDebugPage(root: HTMLElement): () => void {
   let pollKey = 'auto';
   let lastPress: InputPress | null = null;
   let count = 0;
+  /** Press time per held control, for hold durations. */
+  const pressedAt = new Map<string, number>();
+  const controlKey = (e: InputEvent) => `${e.source}:${e.gamepadIndex ?? ''}:${e.control}`;
 
   const tracker = new GamepadTracker(DEFAULT_MAPPING);
   const deps = browserPollerDeps();
@@ -76,7 +81,7 @@ export function renderDebugPage(root: HTMLElement): () => void {
 
   const logBody = el('tbody');
   const emptyRow = el('tr', { className: 'empty' }, [
-    el('td', { colSpan: 6, textContent: 'Press a mapped key or a gamepad button.' }),
+    el('td', { colSpan: 8, textContent: 'Press a mapped key or a gamepad button.' }),
   ]);
   logBody.append(emptyRow);
 
@@ -112,11 +117,15 @@ export function renderDebugPage(root: HTMLElement): () => void {
       }),
     ]),
     el('section', { className: 'card' }, [
-      el('h2', { textContent: 'Presses' }),
+      el('h2', { textContent: 'Presses and releases' }),
+      el('p', {
+        className: 'hint',
+        textContent: 'Only presses are graded. Releases are shown for diagnostics, with how long the control was held.',
+      }),
       el('div', { className: 'table-wrap' }, [
         el('table', {}, [
           el('thead', {}, [
-            el('tr', {}, ['#', 'Source', 'Control', 'Button', 'Timestamp (ms)', 'Since last'].map((h) =>
+            el('tr', {}, ['#', 'Edge', 'Source', 'Control', 'Button', 'Timestamp (ms)', 'Since last press', 'Held'].map((h) =>
               el('th', { textContent: h }),
             )),
           ]),
@@ -130,35 +139,54 @@ export function renderDebugPage(root: HTMLElement): () => void {
     ]),
   );
 
-  // --- presses ------------------------------------------------------------
-  const onPress = (press: InputPress) => {
+  // --- presses and releases ------------------------------------------------
+  const logRow = (event: InputEvent, since: string, held: string) => {
     count += 1;
     emptyRow.remove();
+    const tsNote = event.timestampSource === 'event' ? '' : ` [${event.timestampSource}]`;
+    const classes = [event.edge, event.button ? '' : 'unmapped'].filter(Boolean).join(' ');
+    const row = el('tr', { className: classes }, [
+      el('td', { textContent: String(count) }),
+      el('td', { textContent: event.edge }),
+      el('td', {
+        textContent: event.source === 'gamepad' ? `pad ${event.gamepadIndex ?? '?'}` : 'keyboard',
+      }),
+      el('td', { textContent: event.control }),
+      el('td', { textContent: event.button ?? '(unmapped)' }),
+      el('td', { className: 'num', textContent: fmt(event.timestamp, 3) + tsNote }),
+      el('td', { className: 'num', textContent: since }),
+      el('td', { className: 'num', textContent: held }),
+    ]);
+    logBody.prepend(row);
+    while (logBody.rows.length > MAX_LOG_ROWS) logBody.lastElementChild?.remove();
+  };
+
+  const onPress = (press: InputPress) => {
     let since = '—';
     if (lastPress) {
       const gap = press.timestamp - lastPress.timestamp;
       since = `${fmt(gap)} ms (${msToFrame(gap, fps)}f)`;
     }
     lastPress = press;
-
-    const tsNote = press.timestampSource === 'event' ? '' : ` [${press.timestampSource}]`;
-    const row = el('tr', { className: press.button ? '' : 'unmapped' }, [
-      el('td', { textContent: String(count) }),
-      el('td', {
-        textContent: press.source === 'gamepad' ? `pad ${press.gamepadIndex ?? '?'}` : 'keyboard',
-      }),
-      el('td', { textContent: press.control }),
-      el('td', { textContent: press.button ?? '(unmapped)' }),
-      el('td', { className: 'num', textContent: fmt(press.timestamp, 3) + tsNote }),
-      el('td', { className: 'num', textContent: since }),
-    ]);
-    logBody.prepend(row);
-    while (logBody.rows.length > MAX_LOG_ROWS) logBody.lastElementChild?.remove();
+    pressedAt.set(controlKey(press), press.timestamp);
+    logRow(press, since, '');
   };
 
-  const keyboard = attachKeyboard(window, { mapping: DEFAULT_MAPPING, onPress });
+  const onRelease = (release: InputRelease) => {
+    const key = controlKey(release);
+    const start = pressedAt.get(key);
+    pressedAt.delete(key);
+    // No press time if the control was already held when the pad was first seen.
+    const held =
+      start === undefined
+        ? '—'
+        : `${fmt(release.timestamp - start)} ms (${msToFrame(release.timestamp - start, fps)}f)`;
+    logRow(release, '', held);
+  };
 
-  let poller = startGamepadPolling({ tracker, mode: POLL_MODES[pollKey]!, onPress, deps });
+  const keyboard = attachKeyboard(window, { mapping: DEFAULT_MAPPING, onPress, onRelease });
+
+  let poller = startGamepadPolling({ tracker, mode: POLL_MODES[pollKey]!, onPress, onRelease, deps });
 
   // --- stats refresh --------------------------------------------------------
   const describe = (s: IntervalSummary | null) =>
@@ -226,13 +254,14 @@ export function renderDebugPage(root: HTMLElement): () => void {
     pollKey = pollSelect.value;
     poller.stop();
     tracker.resetStats();
-    poller = startGamepadPolling({ tracker, mode: POLL_MODES[pollKey]!, onPress, deps });
+    poller = startGamepadPolling({ tracker, mode: POLL_MODES[pollKey]!, onPress, onRelease, deps });
     refresh();
   });
   clearBtn.addEventListener('click', () => {
     logBody.replaceChildren(emptyRow);
     lastPress = null;
     count = 0;
+    // pressedAt is kept, so a control held while clearing still shows its hold time.
   });
 
   return () => {

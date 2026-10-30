@@ -139,9 +139,14 @@ describe('helpers', () => {
     expect(gamepadAxisName(9, '+')).toBe('Axis 9+');
   });
 
-  it('converts mapped presses to engine press events and drops unmapped ones', () => {
+  it('converts mapped presses to engine press events and drops unmapped ones and releases', () => {
     const base = { source: 'keyboard', control: 'KeyU', timestamp: 12.5, timestampSource: 'event' } as const;
-    expect(toPressEvent({ ...base, button: 'LP' })).toEqual({ button: 'LP', timestamp: 12.5, source: 'keyboard' });
-    expect(toPressEvent({ ...base, button: null })).toBeNull();
+    expect(toPressEvent({ ...base, edge: 'press', button: 'LP' })).toEqual({
+      button: 'LP',
+      timestamp: 12.5,
+      source: 'keyboard',
+    });
+    expect(toPressEvent({ ...base, edge: 'press', button: null })).toBeNull();
+    expect(toPressEvent({ ...base, edge: 'release', button: 'LP' })).toBeNull();
   });
 });

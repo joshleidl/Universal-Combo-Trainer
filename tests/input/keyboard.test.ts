@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KeyboardTracker, attachKeyboard } from '../../src/input/keyboard';
 import { DEFAULT_MAPPING, bindKey } from '../../src/input/mapping';
-import type { InputPress } from '../../src/input/types';
+import type { InputPress, InputRelease } from '../../src/input/types';
 
 const down = (code: string, timeStamp: number, repeat = false) => ({ code, timeStamp, repeat });
 
@@ -9,6 +9,7 @@ describe('KeyboardTracker', () => {
   it('emits a press with the event timestamp and mapped button', () => {
     const t = new KeyboardTracker(DEFAULT_MAPPING);
     expect(t.keyDown(down('KeyU', 123.456))).toEqual({
+      edge: 'press',
       source: 'keyboard',
       button: 'LP',
       control: 'KeyU',
@@ -27,7 +28,7 @@ describe('KeyboardTracker', () => {
     const t = new KeyboardTracker(DEFAULT_MAPPING);
     t.keyDown(down('KeyU', 0));
     expect(t.keyDown(down('KeyU', 30))).toBeNull();
-    t.keyUp({ code: 'KeyU' });
+    t.keyUp({ code: 'KeyU', timeStamp: 50 });
     expect(t.keyDown(down('KeyU', 60))?.timestamp).toBe(60);
   });
 
@@ -47,6 +48,27 @@ describe('KeyboardTracker', () => {
     t.keyDown(down('KeyU', 0));
     t.reset();
     expect(t.keyDown(down('KeyU', 10))).not.toBeNull();
+  });
+
+  it('emits a release with the keyup timestamp', () => {
+    const t = new KeyboardTracker(DEFAULT_MAPPING);
+    t.keyDown(down('KeyU', 10));
+    expect(t.keyUp({ code: 'KeyU', timeStamp: 95.5 })).toEqual({
+      edge: 'release',
+      source: 'keyboard',
+      button: 'LP',
+      control: 'KeyU',
+      timestamp: 95.5,
+      timestampSource: 'event',
+    });
+  });
+
+  it('only releases keys whose press was reported', () => {
+    const t = new KeyboardTracker(DEFAULT_MAPPING);
+    expect(t.keyUp({ code: 'KeyU', timeStamp: 5 })).toBeNull();
+    t.keyDown(down('KeyU', 10));
+    t.reset(); // e.g. window blur
+    expect(t.keyUp({ code: 'KeyU', timeStamp: 20 })).toBeNull();
   });
 
   it('uses an updated mapping', () => {
@@ -89,6 +111,16 @@ describe('attachKeyboard', () => {
     target.dispatchEvent(keyEvent('keyup', 'KeyU'));
     target.dispatchEvent(keyEvent('keydown', 'KeyU', { timeStamp: 90 }));
     expect(presses.map((p) => p.timestamp)).toEqual([10, 90]);
+  });
+
+  it('sends releases to onRelease', () => {
+    const target = new EventTarget();
+    const releases: InputRelease[] = [];
+    attachKeyboard(target, { mapping: DEFAULT_MAPPING, onPress: () => {}, onRelease: (r) => releases.push(r) });
+    target.dispatchEvent(keyEvent('keydown', 'KeyU', { timeStamp: 10 }));
+    target.dispatchEvent(keyEvent('keyup', 'KeyU', { timeStamp: 70 }));
+    target.dispatchEvent(keyEvent('keyup', 'KeyI', { timeStamp: 80 })); // never pressed
+    expect(releases.map((r) => [r.control, r.timestamp])).toEqual([['KeyU', 70]]);
   });
 
   it('prevents default for mapped keys only', () => {

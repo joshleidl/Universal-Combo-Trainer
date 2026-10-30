@@ -1,4 +1,4 @@
-// Gamepad API polling → timestamped press edges, plus polling-resolution measurement (SPEC §5).
+// Gamepad API polling → timestamped press and release edges, plus polling-resolution measurement (SPEC §5).
 
 import { frameMs } from '../engine/timing';
 import {
@@ -13,7 +13,7 @@ import {
   type AxisDirection,
   type InputMapping,
 } from './mapping';
-import type { InputPress } from './types';
+import type { InputEvent, InputPress, InputRelease } from './types';
 
 /** The parts of a Gamepad the tracker needs (a real Gamepad satisfies this). */
 export interface GamepadLike {
@@ -121,8 +121,9 @@ interface PadState {
 }
 
 /**
- * Compares each poll with the previous one to find press edges. Buttons already held
- * the first time a pad is seen are treated as held, not pressed.
+ * Compares each poll with the previous one to find press and release edges. Buttons
+ * already held the first time a pad is seen are treated as held, not pressed (their
+ * later release is still reported). A pad that disconnects reports no releases.
  */
 export class GamepadTracker {
   /** Time between our polls. */
@@ -143,11 +144,11 @@ export class GamepadTracker {
     this.mapping = mapping;
   }
 
-  poll(gamepads: readonly (GamepadLike | null)[], now: number): InputPress[] {
+  poll(gamepads: readonly (GamepadLike | null)[], now: number): InputEvent[] {
     if (this.lastPoll !== null) this.pollMeter.add(now - this.lastPoll);
     this.lastPoll = now;
 
-    const presses: InputPress[] = [];
+    const events: InputEvent[] = [];
     const seen = new Set<number>();
     const hatAxes = Object.keys(this.mapping.gamepadHats).map(Number);
     const isHat = (axis: number) => hatAxes.includes(axis);
@@ -166,8 +167,9 @@ export class GamepadTracker {
       const trusted = changed && isPlausibleTimestamp(pad.timestamp, now);
       if (trusted) this.updateMeter.add(pad.timestamp - prev.timestamp);
 
-      const emit = (button: InputPress['button'], control: string) =>
-        presses.push({
+      const emit = (edge: InputEvent['edge'], button: InputEvent['button'], control: string) =>
+        events.push({
+          edge,
           source: 'gamepad',
           button,
           control,
@@ -176,21 +178,29 @@ export class GamepadTracker {
           gamepadIndex: pad.index,
         });
 
-      pressed.forEach((down, i) => {
-        if (down && !prev.pressed[i]) emit(mapGamepadButton(this.mapping, i), gamepadControl(i));
-      });
-      axes.forEach((down, i) => {
-        if (!down || prev.axes[i]) return;
+      /** 'press' / 'release' when held state changed, else null. */
+      const edgeOf = (now: boolean, before: boolean): InputEvent['edge'] | null =>
+        now === before ? null : now ? 'press' : 'release';
+
+      // Compare up to the longer list, so a control that vanishes counts as released.
+      const buttonCount = Math.max(pressed.length, prev.pressed.length);
+      for (let i = 0; i < buttonCount; i++) {
+        const edge = edgeOf(!!pressed[i], !!prev.pressed[i]);
+        if (edge) emit(edge, mapGamepadButton(this.mapping, i), gamepadControl(i));
+      }
+      const axisCount = Math.max(axes.length, prev.axes.length);
+      for (let i = 0; i < axisCount; i++) {
+        const edge = edgeOf(!!axes[i], !!prev.axes[i]);
+        if (!edge) continue;
         const axis = Math.floor(i / 2);
         const dir = AXIS_DIRS[i % 2]![0];
-        emit(mapGamepadAxis(this.mapping, axis, dir), gamepadAxisControl(axis, dir));
-      });
+        emit(edge, mapGamepadAxis(this.mapping, axis, dir), gamepadAxisControl(axis, dir));
+      }
       for (const axis of hatAxes) {
         for (const dir of HAT_DIRECTIONS) {
           const key = `${axis} ${dir}`;
-          if (hats.has(key) && !prev.hats.has(key)) {
-            emit(mapGamepadHat(this.mapping, axis, dir), gamepadHatControl(axis, dir));
-          }
+          const edge = edgeOf(hats.has(key), prev.hats.has(key));
+          if (edge) emit(edge, mapGamepadHat(this.mapping, axis, dir), gamepadHatControl(axis, dir));
         }
       }
     }
@@ -198,7 +208,7 @@ export class GamepadTracker {
     for (const index of this.pads.keys()) {
       if (!seen.has(index)) this.pads.delete(index);
     }
-    return presses;
+    return events;
   }
 
   /** Clear measurements and the previous-poll time (e.g. after changing poll mode). */
@@ -283,6 +293,8 @@ export interface PollerOptions {
   tracker: GamepadTracker;
   mode: PollMode;
   onPress: (press: InputPress) => void;
+  /** Optional, for diagnostics. Releases are never graded. */
+  onRelease?: (release: InputRelease) => void;
   deps?: PollerDeps;
 }
 
@@ -296,7 +308,10 @@ export interface PollerHandle {
 export function startGamepadPolling(options: PollerOptions): PollerHandle {
   const deps = options.deps ?? browserPollerDeps();
   const pollOnce = () => {
-    for (const press of options.tracker.poll(deps.getGamepads(), deps.now())) options.onPress(press);
+    for (const event of options.tracker.poll(deps.getGamepads(), deps.now())) {
+      if (event.edge === 'press') options.onPress(event);
+      else options.onRelease?.(event);
+    }
   };
 
   const run = (loop: ActivePoll): (() => void) => {
