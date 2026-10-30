@@ -162,3 +162,6 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Countdown start:** frame 0 is the timestamp passed to `start()` and is not latency-corrected (it is a stimulus time, not an input). Presses before `start()` are ignored. `start()` may be given a future time; presses before it grade `EARLY` with negative frames.
 - **WRONG_BUTTON results** keep the press and its timing fields (frame, delta), so the timeline can show where the wrong press landed.
 - **Attempt success** means it completed with every step `ON_TIME`.
+
+### Tooling (2026-10-29)
+- **mise** pins the Node version (`mise.toml`, Node 24.14.0) and provides task shortcuts (`mise run test`, `dev`, `build`, `typecheck`, `install`) that wrap the npm scripts. The npm scripts stay the source of truth.

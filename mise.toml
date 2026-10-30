@@ -1,0 +1,22 @@
+[tools]
+node = "24.14.0"
+
+[tasks.install]
+description = "Install npm dependencies"
+run = "npm install"
+
+[tasks.dev]
+description = "Start the Vite dev server"
+run = "npm run dev"
+
+[tasks.test]
+description = "Run the unit tests"
+run = "npm test"
+
+[tasks.typecheck]
+description = "Type-check the project"
+run = "npm run typecheck"
+
+[tasks.build]
+description = "Type-check and build static files into dist/"
+run = "npm run build"
