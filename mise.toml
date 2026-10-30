@@ -1,6 +1,10 @@
 [tools]
 node = "24.14.0"
 
+[env]
+# Where session transcripts are backed up (SPEC §10).
+TRANSCRIPT_DIR = "/mnt/c/Users/joshl/Documents/AI Transcripts/Universal Combo Trainer"
+
 [tasks.install]
 description = "Install npm dependencies"
 run = "npm install"
@@ -20,3 +24,7 @@ run = "npm run typecheck"
 [tasks.build]
 description = "Type-check and build static files into dist/"
 run = "npm run build"
+
+[tasks.transcript]
+description = "Back up the latest Claude Code session transcript to TRANSCRIPT_DIR"
+run = "node scripts/backup-transcript.mjs"

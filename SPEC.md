@@ -174,6 +174,22 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - Reading game memory or game frame data.
 - Accounts, online leaderboards, any backend.
 
+## 10. Session transcripts
+- **On every commit, back up the session transcript.** Right after making a commit, Claude Code runs `mise run transcript`. This applies to every commit Claude makes, including mid-session ones.
+- **What it writes:** two files in `$TRANSCRIPT_DIR` (set in `mise.toml`; currently `C:\Users\joshl\Documents\AI Transcripts\Universal Combo Trainer`):
+  - `YYYY-MM-DD Claude Code session <id>.md`: readable transcript with a header (date and time range, session ID, commits made during the session). It has the conversation text, with each tool call summarized as a one-line *Actions* entry. Command output and internal reasoning are left out.
+  - `YYYY-MM-DD Claude Code session <id> (raw).jsonl`: an exact copy of the session log.
+- **One pair of files per session.** Running it again in the same session overwrites that session's files with the latest version. The date is the session's start date.
+- **Session lookup:** the script uses the most recently updated session log for this project, or `--session <id>` (`node scripts/backup-transcript.mjs --session <id>`).
+- Transcripts are not committed to the repo.
+- If the backup fails (e.g. the folder isn't reachable), the commit stands. Claude reports the failure instead of retrying silently.
+
+## Next session (noted 2026-10-29)
+1. **Show button release events on the debug page**, alongside press events, for keyboard keys, gamepad buttons, axis directions and hat directions. Notes for the design:
+   - Grading is unchanged: only press edges are graded (§3 Input rules). Releases are for display and diagnostics, so the engine does not change.
+   - The trackers already know when a key/button/direction goes up (keyup, held sets). The open question is the event shape: either an `edge: 'press' | 'release'` field on input events, or a separate release callback. Pick the simplest option, keep `toPressEvent()` press-only, and log the choice.
+   - In the log, show hold duration (release − press), in ms and frames.
+
 ## Decisions log
 
 ### Layer 1 (2026-10-29)
@@ -207,4 +223,5 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **The debug page is the app's home page** until the editor and practice views exist.
 
 ### Tooling (2026-10-29)
+- **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.
 - **mise** pins the Node version (`mise.toml`, Node 24.14.0) and provides task shortcuts (`mise run test`, `dev`, `build`, `typecheck`, `install`) that wrap the npm scripts. The npm scripts stay the source of truth.
