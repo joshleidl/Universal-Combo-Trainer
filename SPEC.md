@@ -65,15 +65,18 @@ src/
     timing.ts      frame/ms conversion, grading function
     attempt.ts     attempt state machine: idle → armed → running → done
   input/         # converts keyboard + gamepad into timestamped press events
+    types.ts       InputPress / InputRelease event shapes
     keyboard.ts
     gamepad.ts
     mapping.ts     raw key/button → button ID; user-remappable
+    wake.ts        "wake your controller" banner state (pure)
   ui/            # DOM rendering only; reads engine state, never owns timing
     editor.ts      combo builder
-    practice.ts    run attempts, show live feedback
-    results.ts     timeline + stats
+    practice.ts    run attempts, live feedback, last-attempt timeline, session stats
+    controls.ts    Controls page: remap keys and pad controls
     calibrate.ts   latency calibration screen
     debug.ts       input debug page (Layer 2)
+    padBanner.ts   app-wide controller wake-up banner
     dom.ts         shared element helper
   combo/         # pure combo-editing helpers + shipped examples; no DOM; unit tested
     edit.ts
@@ -94,8 +97,13 @@ src/
     mapping.ts     saved input mapping
     settings.ts    saved app settings (strict mode, sound, latency offsets)
   main.ts        page shell + hash routing (#practice, #controls, #calibrate, #debug, #share=…)
+  style.css      all app styles, light and dark
+scripts/
+  backup-transcript.mjs        session transcript backup (§10)
 .github/workflows/deploy.yml   GitHub Pages deploy
 netlify.toml                   Netlify alternative
+mise.toml                      pinned Node version, task shortcuts, transcript folder
+CLAUDE.md                      working conventions for Claude Code
 tests/
   audio/*.test.ts
   calibration/*.test.ts
@@ -205,7 +213,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 
 ## 10. Session transcripts
 - **On every commit, back up the session transcript.** Right after making a commit, Claude Code runs `mise run transcript`. This applies to every commit Claude makes, including mid-session ones.
-- **What it writes:** two files in `$TRANSCRIPT_DIR` (set in `mise.toml`; currently `C:\Users\joshl\Documents\AI Transcripts\Universal Combo Trainer`):
+- **What it writes:** two files in `$TRANSCRIPT_DIR`. It's set in `mise.toml` as the WSL path `/mnt/c/Users/joshl/Documents/AI Transcripts/Universal Combo Trainer`, because development runs in WSL. That is the Windows folder `C:\Users\joshl\Documents\AI Transcripts\Universal Combo Trainer`.
   - `YYYY-MM-DD Claude Code session <id>.md`: readable transcript with a header (date and time range, session ID, commits made during the session). It has the conversation text, with each tool call summarized as a one-line *Actions* entry. Command output and internal reasoning are left out.
   - `YYYY-MM-DD Claude Code session <id> (raw).jsonl`: an exact copy of the session log.
 - **One pair of files per session.** Running it again in the same session overwrites that session's files with the latest version. The date is the session's start date.
