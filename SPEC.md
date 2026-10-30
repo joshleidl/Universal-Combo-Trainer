@@ -192,6 +192,13 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - Transcripts are not committed to the repo.
 - If the backup fails (e.g. the folder isn't reachable), the commit stands. Claude reports the failure instead of retrying silently.
 
+## Backlog
+- **Advanced combo-building mode** (requested 2026-10-30, after the Layer 3 review). An optional editor mode for steps that need more than one button press:
+  - **Release events as steps:** grade the timing of a button release, not only presses (e.g. negative-edge inputs, or holding a button for a set number of frames). The input layer already emits releases (see Decisions log, "Release events").
+  - **Grouped inputs:** a step made of several inputs. They can be *sequential*, like a motion input (quarter-circle forward = DOWN, DOWN+RIGHT, RIGHT, then a button), or *simultaneous*, like a chord (two buttons within a few frames of each other).
+  - **Input leniency for motions:** accept shortcuts the way many games do, e.g. DOWN → RIGHT counts as a quarter-circle forward even though DOWN+RIGHT was skipped. Leniency should be adjustable per group.
+  - Motion and chord inputs are out of scope for now (§9). This changes the engine's `Step` type and grading, so a written proposal and spec update come before any code (CLAUDE.md).
+
 ## Next session
 - Layer 3 (sequence editor + storage) is built and awaiting review (2026-10-30). Layer 4 starts after approval.
 
