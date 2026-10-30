@@ -1,0 +1,171 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1b1f24;
+  --muted: #5d6673;
+  --border: #d9dde3;
+  --accent: #2f6fdb;
+  --warn-bg: #fff4d6;
+  --warn-text: #6b4a00;
+  --unmapped: #8a929d;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418;
+    --surface: #1a1e24;
+    --text: #e6e9ee;
+    --muted: #9aa3ae;
+    --border: #2d333b;
+    --accent: #6ea0ff;
+    --warn-bg: #3a2f10;
+    --warn-text: #f4d58a;
+    --unmapped: #6b737e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+#app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+h2:not(:first-child) {
+  margin-top: 16px;
+}
+
+.sub,
+.hint {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 16px 0;
+}
+
+select,
+button {
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+button {
+  cursor: pointer;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.pads {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.pads .live {
+  color: var(--muted);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.stats dt {
+  color: var(--muted);
+}
+
+.stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.warning {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin: 12px 0 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+tr.unmapped td {
+  color: var(--unmapped);
+}
+
+tr.empty td {
+  color: var(--muted);
+}
+
+@media (max-width: 600px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+  .stats dd {
+    margin-bottom: 6px;
+  }
+}
