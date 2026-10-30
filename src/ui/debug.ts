@@ -17,6 +17,7 @@ import {
   startGamepadPolling,
   type AxisDirection,
   type InputEvent,
+  type InputMapping,
   type InputPress,
   type InputRelease,
   type IntervalSummary,
@@ -36,7 +37,7 @@ const POLL_MODES: Record<string, PollMode> = {
 
 const fmt = (ms: number, digits = 2) => ms.toFixed(digits);
 
-export function renderDebugPage(root: HTMLElement): () => void {
+export function renderDebugPage(root: HTMLElement, mapping: InputMapping = DEFAULT_MAPPING): () => void {
   let fps = 60;
   let pollKey = 'auto';
   let lastPress: InputPress | null = null;
@@ -45,7 +46,7 @@ export function renderDebugPage(root: HTMLElement): () => void {
   const pressedAt = new Map<string, number>();
   const controlKey = (e: InputEvent) => `${e.source}:${e.gamepadIndex ?? ''}:${e.control}`;
 
-  const tracker = new GamepadTracker(DEFAULT_MAPPING);
+  const tracker = new GamepadTracker(mapping);
   const deps = browserPollerDeps();
 
   // --- layout -------------------------------------------------------------
@@ -125,8 +126,9 @@ export function renderDebugPage(root: HTMLElement): () => void {
       ]),
     ]),
     el('section', { className: 'card' }, [
-      el('h2', { textContent: 'Default mapping' }),
-      mappingTable(),
+      el('h2', { textContent: 'Current mapping' }),
+      mappingTable(mapping),
+      el('p', { className: 'hint' }, ['Change bindings on the ', el('a', { href: '#controls', textContent: 'Controls' }), ' page.']),
     ]),
   );
 
@@ -175,7 +177,7 @@ export function renderDebugPage(root: HTMLElement): () => void {
     logRow(release, '', held);
   };
 
-  const keyboard = attachKeyboard(window, { mapping: DEFAULT_MAPPING, onPress, onRelease });
+  const keyboard = attachKeyboard(window, { mapping, onPress, onRelease });
 
   let poller = startGamepadPolling({ tracker, mode: POLL_MODES[pollKey]!, onPress, onRelease, deps });
 
@@ -192,7 +194,7 @@ export function renderDebugPage(root: HTMLElement): () => void {
         ? pads.map((p) => {
             const held = p.buttons.flatMap((b, i) => (b.pressed ? [String(i)] : []));
             const axes = p.axes.map((v, i) => `${i}: ${v.toFixed(2)}`);
-            const hats = Object.keys(DEFAULT_MAPPING.gamepadHats)
+            const hats = Object.keys(mapping.gamepadHats)
               .map(Number)
               .filter((axis) => axis < p.axes.length)
               .map((axis) => `Hat ${axis}: ${decodeHat(p.axes[axis]!).join('-') || 'neutral'}`);
@@ -262,23 +264,24 @@ export function renderDebugPage(root: HTMLElement): () => void {
   };
 }
 
-function mappingTable(): HTMLElement {
+function mappingTable(mapping: InputMapping): HTMLElement {
   const keyFor: Record<string, string[]> = {};
   const padFor: Record<string, string[]> = {};
-  for (const [code, button] of Object.entries(DEFAULT_MAPPING.keyboard)) {
+  for (const [code, button] of Object.entries(mapping.keyboard)) {
     (keyFor[button] ??= []).push(code.replace(/^Key/, ''));
   }
-  for (const [index, button] of Object.entries(DEFAULT_MAPPING.gamepad)) {
+  for (const [index, button] of Object.entries(mapping.gamepad)) {
     (padFor[button] ??= []).push(gamepadButtonName(Number(index)));
   }
-  for (const [key, button] of Object.entries(DEFAULT_MAPPING.gamepadAxes)) {
+  for (const [key, button] of Object.entries(mapping.gamepadAxes)) {
     const axis = Number(key.slice(0, -1));
     const dir = key.slice(-1) as AxisDirection;
     (padFor[button] ??= []).push(gamepadAxisName(axis, dir));
   }
-  for (const [axis, hat] of Object.entries(DEFAULT_MAPPING.gamepadHats)) {
+  for (const [axis, hat] of Object.entries(mapping.gamepadHats)) {
     for (const dir of HAT_DIRECTIONS) {
-      (padFor[hat[dir]] ??= []).push(gamepadHatControl(Number(axis), dir));
+      const button = hat[dir];
+      if (button) (padFor[button] ??= []).push(gamepadHatControl(Number(axis), dir));
     }
   }
   const buttons = [...new Set([...Object.keys(keyFor), ...Object.keys(padFor)])];

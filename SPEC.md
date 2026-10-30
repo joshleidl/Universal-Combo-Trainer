@@ -78,6 +78,11 @@ src/
   combo/         # pure combo-editing helpers + shipped examples; no DOM; unit tested
     edit.ts
     examples.ts
+  practice/      # pure practice-session logic on top of the engine; no DOM; unit tested
+    session.ts     back-to-back attempts, quick restart, auto re-arm
+    stats.ts       session stats
+    timeline.ts    timeline geometry (frames since frame 0)
+    format.ts      feedback text ("2f late (+31.4 ms)")
   storage/
     combos.ts      save/load via localStorage (storage injected, so it's testable in Node)
   main.ts        page shell + hash routing (#debug = input debug page)
@@ -86,6 +91,7 @@ tests/
   input/*.test.ts
   combo/*.test.ts
   storage/*.test.ts
+  practice/*.test.ts
 ```
 
 Rules:
@@ -97,7 +103,7 @@ Rules:
 
 ### Keyboard
 - Use `keydown` with `event.timeStamp`; ignore `event.repeat`.
-- Default mapping provided (e.g. U/I/O = LP/MP/HP, J/K/L = LK/MK/HK, WASD = directions), remappable.
+- Default mapping provided (e.g. U/I/O/P = LP/MP/HP/MISC1, J/K/L/; = LK/MK/HK/MISC2, WASD = directions), remappable.
 
 ### Gamepad (Gamepad API)
 - Poll `navigator.getGamepads()` on a **4 ms timer while the page has focus** (default, "auto" mode). When the page loses focus, fall back to polling every `requestAnimationFrame`, and switch back on focus. Fixed rAF or timer modes stay available on the debug page. Detect press edges by comparing to the previous poll.
@@ -174,7 +180,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 **Done when:** a full attempt can be performed with keyboard or gamepad and results display correctly.
 
 ### Layer 5: Polish
-- Latency calibration screen (§6), audio cues, countdown start mode UI, input remapping UI, mobile layout pass, deploy config for static hosting.
+- Latency calibration screen (§6), audio cues, countdown start mode UI, input remapping UI (done early, in Layer 4, at the user's request), mobile layout pass, deploy config for static hosting.
 - Optional: share combo via URL.
 
 ## 9. Out of scope (for now)
@@ -193,6 +199,8 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - If the backup fails (e.g. the folder isn't reachable), the commit stands. Claude reports the failure instead of retrying silently.
 
 ## Backlog
+- **Countdown before each attempt** (requested 2026-10-30, Layer 4 review). Replace the 1 s quiet-time re-arm between attempts with a countdown that starts the next attempt. Ties in with the countdown start mode UI in Layer 5. The 1 s wait is fine as a stopgap.
+- **Basic sound feedback for app events** (requested 2026-10-30, Layer 4 review). Short sounds for things like: attempt armed / countdown ticks, a step graded on time vs. off, attempt clean vs. failed, a control bound on the Controls page. Overlaps with the Layer 5 audio cues (§7); off by default per §7.
 - **Advanced combo-building mode** (requested 2026-10-30, after the Layer 3 review). An optional editor mode for steps that need more than one button press:
   - **Release events as steps:** grade the timing of a button release, not only presses (e.g. negative-edge inputs, or holding a button for a set number of frames). The input layer already emits releases (see Decisions log, "Release events").
   - **Grouped inputs:** a step made of several inputs. They can be *sequential*, like a motion input (quarter-circle forward = DOWN, DOWN+RIGHT, RIGHT, then a button), or *simultaneous*, like a chord (two buttons within a few frames of each other).
@@ -200,7 +208,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - Motion and chord inputs are out of scope for now (§9). This changes the engine's `Step` type and grading, so a written proposal and spec update come before any code (CLAUDE.md).
 
 ## Next session
-- Layer 3 (sequence editor + storage) is built and awaiting review (2026-10-30). Layer 4 starts after approval.
+- Layer 4 (practice mode + feedback) plus input remapping and the MISC1/MISC2 buttons were reviewed and committed on 2026-10-30. Layer 5 is next; see the Backlog for the countdown-between-attempts and sound feedback requests.
 
 ## Decisions log
 
@@ -222,7 +230,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Common press shape:** input sources emit `InputPress` (`source`, `button` or null when unmapped, raw `control`, `timestamp`, `timestampSource`, `gamepadIndex`). `toPressEvent()` converts mapped presses to the engine's `PressEvent`. Unmapped presses are kept so the debug page can show them.
 - **Keyboard mapping uses `KeyboardEvent.code`** (physical key position), so the defaults work on any keyboard layout.
 - **Hold detection:** besides `event.repeat`, the keyboard tracker ignores a keydown for a key that is still held. Held keys are cleared on window blur. Keys pressed with Ctrl/Cmd/Alt are ignored so browser shortcuts still work. Mapped keys have their default action prevented.
-- **Default gamepad mapping** (W3C standard layout): X/Y/RB = LP/MP/HP, A/B/RT = LK/MK/HK, d-pad = directions. Pads with a non-standard mapping get a warning on the debug page.
+- **Default gamepad mapping** (W3C standard layout): X/Y/RB = LP/MP/HP, A/B/RT = LK/MK/HK, d-pad = directions. (LB = MISC1 and LT = MISC2 added later, see "Input remapping".) Pads with a non-standard mapping get a warning on the debug page.
 - **Axes as directions:** each axis direction ("Axis 0-", "Axis 1+", …) is a pressable control. It counts as pressed at |value| ≥ 0.5 and released below 0.4 (hysteresis). The left stick (axes 0/1) maps to LEFT/RIGHT/UP/DOWN by default, which also covers fight sticks in LS mode. A diagonal is two presses. Unmapped axis directions still appear in the debug log. Added after the first hardware test: the arcade stick's lever reported through axes and showed nothing in the log.
 - **Hat switches:** an axis listed in `InputMapping.gamepadHats` is decoded as an 8-way hat and is not also read as a plain axis. Encoding: the value rises by 2/7 clockwise from up (−1) to up-left (+1), and is rounded to the nearest step. Anything more than half a step outside −1…1 is neutral (Firefox reports 3.29, Chrome 1.29). Diagonals are two directions (numpad 3 = DOWN + RIGHT). Default: axis 9 → UP/DOWN/LEFT/RIGHT, confirmed on a Qanba Obsidian in Firefox / Windows 11. Pads without an axis 9 are unaffected. Remap with `setGamepadHat` / `removeGamepadHat`.
 - **First sight of a pad:** buttons already down the first time a pad appears are treated as held, so connecting a pad never makes phantom presses. Side effect: the press that wakes up the pad in the browser isn't reported.
@@ -231,7 +239,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Auto poll mode:** "focused" means `document.hasFocus()`, updated on window `focus`/`blur`. Poll stats reset on each switch, so the shown interval always matches the mode in use.
 - **Gamepad resolution = median poll interval.** The time between input changes is shown only as a diagnostic (fastest and median). It is not used for the warning, because on digital-only pads it measures the player, not the browser. Revised after the first hardware test.
 - **Resolution warning** shows when resolution ≥ 0.9 × one target frame, so 60 Hz polling at 60 fps warns even though intervals jitter just under 16.67 ms.
-- **Remapping** is pure helper functions for now (`bindKey`, `unbindKey`, `bindGamepadButton`, `unbindGamepadButton`). A remap UI and saving mappings come with Layer 5.
+- **Remapping** is pure helper functions for now (`bindKey`, `unbindKey`, `bindGamepadButton`, `unbindGamepadButton`). A remap UI and saving mappings come with Layer 5. (Superseded: done during the Layer 4 review, see "Input remapping".)
 - **The debug page is the app's home page** until the editor and practice views exist.
 
 ### Release events (2026-10-30)
@@ -261,6 +269,42 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **On-time window hint:** each step shows its on-time frames and the ms span they cover (start of the first frame to the end of the last), e.g. "frames 10 to 14, 166.7 to 250.0 ms after the previous input".
 - **Start mode** can be set to countdown in the editor now; the countdown itself is Layer 5 and the hint says so.
 - **Routing:** the editor is the home page; the input debug page moved to `#debug`. A shared header has links to both.
+
+### Layer 4 (2026-10-30)
+- **New `practice/` module:** the attempt-to-attempt flow (`createPractice`, `practicePress`, `practiceTick`, `practiceRestart`, `practiceWithSettings`, `resetStats`, `shownAttempt`), session stats, timeline geometry and feedback text. All pure and unit tested with synthetic timestamps, so `ui/practice.ts` only renders and forwards input. The engine is unchanged.
+- **What gets practiced:** the combo open in the editor, including unsaved changes. The editor has a Practice button (disabled while the combo is invalid) and the header has a Practice link (`#practice`).
+- **Countdown combos** show a message on the practice page instead of running, because the countdown UI is Layer 5.
+- **Auto re-arm:** after an attempt ends, the next one arms once there has been **1 s with no presses** (`REARM_QUIET_MS`). Each press during that time restarts the wait, so mashing out the rest of a dropped combo doesn't start (and fail) a new attempt.
+- **Quick restart:** Space on the keyboard, or Back (8) / Start (9) on a standard-layout pad, re-arms immediately. These only count as restart while they're unmapped. Restarting during an attempt abandons it, and an abandoned attempt isn't counted in the stats. Space's default action (scrolling, clicking the focused button) is blocked on the practice page.
+- **Results stay on screen:** the last finished attempt stays on screen until the next attempt grades its first step.
+- **Ticks:** a `requestAnimationFrame` loop calls `practiceTick(performance.now())` to declare misses and re-arm. A 250 ms timer does the same while rAF is paused in a background tab. Grading itself only uses press timestamps, so rendering speed doesn't affect results.
+- **Timeline:** one lane per graded step on a frame ruler that starts at frame 0. It shows the on-time window (shaded), the start of the target frame (line), and the latency-corrected press (dot). A missed step shows its deadline. A wrong button shows which button was pressed. In non-strict mode, ignored presses get their own lane. Relative windows are placed after the previous actual press. Steps never reached aren't drawn. The ruler ends 2 frames past the last item. If the attempt ended on its first press, there is no timeline.
+- **Stats:**
+  - **On-time rate** = on-time / times the step was reached. A step counts as reached when it got any grade, including MISSED and WRONG_BUTTON.
+  - **Average and spread** use `deltaFrames` of correct-button presses only. Spread is the population standard deviation.
+  - **Streaks** count clean attempts in a row; best streak is kept too.
+  - The first-input start step shows how many times it started an attempt instead of a rate.
+- **Session = this combo, unchanged:** stats stay in memory across page switches while the practiced combo is unchanged. Editing it, opening another combo, Reset stats, or reloading the page starts a new session. Stats are not saved to storage.
+- **Strict mode** is a checkbox on the practice page (default on). It's kept in memory only for now; saving settings comes with the Layer 5 settings work (calibration, remapping). Changing it arms a fresh attempt and keeps the stats.
+- **Mappings:** the practice page lists the current keyboard bindings and links to the Controls page (see "Input remapping").
+- **Gamepad resolution warning** (§5) shows on the practice page when a pad is connected and the measured poll interval is about one frame or coarser at the combo's fps.
+- **Feedback text:**
+  - "On time (+5.2 ms)"; "On time, 1f late (+20.1 ms)" when inside the tolerance but off the target frame.
+  - "2f early (−31.4 ms)" / "2f late (+31.4 ms)".
+  - "Wrong button: HK at +1f (+20.0 ms)"; "Missed".
+  - The first-input start step shows "Start".
+
+### Input remapping (2026-10-30, during Layer 4 review)
+- **Pulled forward from Layer 5** at the user's request: their stick's buttons didn't match the default punches-on-top / kicks-on-bottom layout, so the Controls page and saving mappings were done early. This replaces the Layer 2 note that remapping would wait for Layer 5.
+- **Controls page** (`#controls`): one row per button, showing its keyboard and gamepad bindings as chips (✕ removes one). "Bind" waits for the next press (key, pad button, stick direction or hat direction) and binds it to that row's button. Escape cancels, and Escape and Tab can't be bound. While no row is waiting for a press, pressing anything flashes the row of the button it's bound to, as a live test. "Reset to defaults" asks first.
+- **One button per control:** binding a control that already belongs to another button moves it, and the status line says so. A button can have any number of controls.
+- **Pure helpers** in `input/mapping.ts`: `parseControl` (event `source` + `control` → `ControlRef`), `mapControl`, `bindControl`, `unbindControl`, `listBindings`, `controlLabel`, `keyLabel`. Unit tested.
+- **Hat directions can be unbound:** `HatMapping` is now partial. An axis listed as a hat stays decoded as a hat even with no directions bound, so it isn't read as a plain axis instead. Unbound hat directions come through as unmapped presses, so they can be bound.
+- **One mapping for every pad** (no per-device profiles) plus the keyboard. Simplest option; profiles can come later if needed.
+- **Saved** in `localStorage` key `uct.mapping.v1` as `{ version: 1, keyboard, gamepad, gamepadAxes, gamepadHats }`. Nothing is stored until the first change, and reset deletes the key, so users on the defaults get future default changes. An unreadable saved mapping is copied to `uct.mapping.v1.backup` and the defaults are used.
+- **Every page uses the saved mapping:** practice, controls and the debug page (whose table is now "Current mapping"). A page picks up the mapping when it opens.
+- **MISC1 / MISC2 buttons** (added 2026-10-30 at the user's request) cover all 8 buttons of a standard stick. Defaults: LB (4) = MISC1 and LT (6) = MISC2, the two pad buttons the 6-button layout left free (top row X/Y/RB/LB, bottom row A/B/RT/LT); keyboard P = MISC1 and ; = MISC2, continuing the U/I/O and J/K/L rows. They are ordinary button IDs, so combo steps can use them too. Users with a saved mapping keep it and bind MISC1/MISC2 themselves; reset picks up the new defaults.
+- **Restart controls** (Space, pad Start/Back) only restart while they aren't bound to a button. The practice page's restart hint lists only the ones that are free.
 
 ### Tooling (2026-10-29)
 - **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.

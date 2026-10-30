@@ -1,8 +1,11 @@
 import './style.css';
 import { ComboStore, memoryStorage, type StorageLike } from './storage/combos';
+import { loadMapping, resetMapping, saveMapping } from './storage/mapping';
+import { renderControlsPage, type MappingHolder } from './ui/controls';
 import { renderDebugPage } from './ui/debug';
 import { el } from './ui/dom';
 import { initialSession, renderEditorPage } from './ui/editor';
+import { newPracticeMemory, renderPracticePage } from './ui/practice';
 
 /** localStorage, or an in-memory stand-in when the browser blocks it (e.g. some private modes). */
 function openStorage(): { storage: StorageLike; persistent: boolean } {
@@ -21,10 +24,23 @@ if (app) {
   const { storage, persistent } = openStorage();
   const store = new ComboStore(storage);
   const session = initialSession(store);
+  const practice = newPracticeMemory();
+  const controls: MappingHolder = {
+    current: loadMapping(storage),
+    save(mapping) {
+      saveMapping(storage, mapping);
+      this.current = mapping;
+    },
+    reset() {
+      this.current = resetMapping(storage);
+    },
+  };
 
   const routes = {
     editor: { hash: '#', label: 'Combos', render: (root: HTMLElement) => renderEditorPage(root, store, session) },
-    debug: { hash: '#debug', label: 'Input debug', render: renderDebugPage },
+    practice: { hash: '#practice', label: 'Practice', render: (root: HTMLElement) => renderPracticePage(root, session, practice, controls.current) },
+    controls: { hash: '#controls', label: 'Controls', render: (root: HTMLElement) => renderControlsPage(root, controls) },
+    debug: { hash: '#debug', label: 'Input debug', render: (root: HTMLElement) => renderDebugPage(root, controls.current) },
   } as const;
   type Route = keyof typeof routes;
 
@@ -47,7 +63,7 @@ if (app) {
 
   let cleanup: (() => void) | null = null;
   const show = () => {
-    const route: Route = location.hash === '#debug' ? 'debug' : 'editor';
+    const route = (Object.keys(routes) as Route[]).find((r) => r !== 'editor' && routes[r].hash === location.hash) ?? 'editor';
     cleanup?.();
     cleanup = routes[route].render(page);
     for (const a of navLinks) {

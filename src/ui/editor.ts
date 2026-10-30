@@ -12,6 +12,7 @@ import {
   updateStep,
   type StepPatch,
 } from '../combo/edit';
+import { validateCombo } from '../engine/attempt';
 import type { Combo, StartMode, Step, TimingMode } from '../engine/types';
 import { BUTTON_IDS } from '../input/mapping';
 import { validateForSave, type ComboStore } from '../storage/combos';
@@ -82,6 +83,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
   const revertBtn = el('button', { type: 'button', textContent: 'Revert' });
   const deleteBtn = el('button', { type: 'button', className: 'danger', textContent: 'Delete' });
   const status = el('span', { className: 'status', role: 'status' });
+  const practiceBtn = el('button', { type: 'button', className: 'practice-btn', textContent: 'Practice ▶' });
 
   root.replaceChildren(
     el('section', { className: 'card' }, [
@@ -89,7 +91,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       comboList,
     ]),
     el('section', { className: 'card editor' }, [
-      el('h2', { textContent: 'Edit combo' }),
+      el('div', { className: 'card-head' }, [el('h2', { textContent: 'Edit combo' }), practiceBtn]),
       el('div', { className: 'fields' }, [
         el('label', { className: 'field grow' }, [el('span', { textContent: 'Name' }), nameInput]),
         el('label', { className: 'field' }, [el('span', { textContent: 'Framerate (fps)' }), fpsInput, fpsPresets]),
@@ -248,6 +250,8 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     const dirty = isDirty(session);
     saveBtn.disabled = errors.length > 0 || (!dirty && session.id !== null);
     saveAsBtn.disabled = errors.length > 0;
+    practiceBtn.disabled = validateCombo(d).length > 0;
+    practiceBtn.title = dirty ? 'Practices the combo as edited, including unsaved changes' : '';
     revertBtn.disabled = !dirty;
     deleteBtn.disabled = session.id === null;
     if (session.id === null) setStatus('Not saved yet');
@@ -341,6 +345,9 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     setDraft(addStep(session.draft));
     rebuildSteps();
     rows.at(-1)?.targetInput.focus();
+  });
+  practiceBtn.addEventListener('click', () => {
+    location.hash = '#practice';
   });
   newBtn.addEventListener('click', () => {
     if (confirmDiscard()) startNew();
