@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 const projectDir = process.cwd();
 const outDir = process.env.TRANSCRIPT_DIR;
-if (!outDir) fail('TRANSCRIPT_DIR is not set (it is set in mise.toml; run via `mise run transcript`).');
+if (!outDir) fail('TRANSCRIPT_DIR is not set (set it in mise.local.toml; run via `mise run transcript`).');
 
 // Claude Code stores sessions under ~/.claude/projects/<cwd with "/" and "." replaced by "-">.
 const sessionsDir = join(homedir(), '.claude', 'projects', projectDir.replace(/[/.]/g, '-'));

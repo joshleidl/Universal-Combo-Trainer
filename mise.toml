@@ -1,9 +1,10 @@
 [tools]
 node = "24.14.0"
 
-[env]
-# Where session transcripts are backed up (SPEC §10).
-TRANSCRIPT_DIR = "/mnt/c/Users/joshl/Documents/AI Transcripts/Universal Combo Trainer"
+# TRANSCRIPT_DIR (where session transcripts are backed up, SPEC §10) is set in
+# mise.local.toml, which is not committed. Example:
+#   [env]
+#   TRANSCRIPT_DIR = "/path/to/transcripts"
 
 [tasks.install]
 description = "Install npm dependencies"

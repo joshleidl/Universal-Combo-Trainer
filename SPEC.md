@@ -102,7 +102,8 @@ scripts/
   backup-transcript.mjs        session transcript backup (§10)
 .github/workflows/deploy.yml   GitHub Pages deploy
 netlify.toml                   Netlify alternative
-mise.toml                      pinned Node version, task shortcuts, transcript folder
+mise.toml                      pinned Node version, task shortcuts
+mise.local.toml                transcript folder (machine-specific, not committed)
 CLAUDE.md                      working conventions for Claude Code
 tests/
   audio/*.test.ts
@@ -213,7 +214,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 
 ## 10. Session transcripts
 - **On every commit, back up the session transcript.** Right after making a commit, Claude Code runs `mise run transcript`. This applies to every commit Claude makes, including mid-session ones.
-- **What it writes:** two files in `$TRANSCRIPT_DIR`. It's set in `mise.toml` as the WSL path `/mnt/c/Users/joshl/Documents/AI Transcripts/Universal Combo Trainer`, because development runs in WSL. That is the Windows folder `C:\Users\joshl\Documents\AI Transcripts\Universal Combo Trainer`.
+- **What it writes:** two files in `$TRANSCRIPT_DIR`. It's set in `mise.local.toml`, which is gitignored so the personal folder path stays out of the public repo. Development runs in WSL, so it's a WSL path to a folder on the Windows side (`/mnt/c/...`).
   - `YYYY-MM-DD Claude Code session <id>.md`: readable transcript with a header (date and time range, session ID, commits made during the session). It has the conversation text, with each tool call summarized as a one-line *Actions* entry. Command output and internal reasoning are left out.
   - `YYYY-MM-DD Claude Code session <id> (raw).jsonl`: an exact copy of the session log.
 - **One pair of files per session.** Running it again in the same session overwrites that session's files with the latest version. The date is the session's start date.
@@ -410,3 +411,4 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 ### Tooling (2026-10-29)
 - **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.
 - **mise** pins the Node version (`mise.toml`, Node 24.14.0) and provides task shortcuts (`mise run test`, `dev`, `build`, `typecheck`, `install`) that wrap the npm scripts. The npm scripts stay the source of truth.
+- **Transcript folder moved to `mise.local.toml`** (2026-10-30): the repo is public, so the personal path (Windows username, folder layout) no longer lives in tracked files. `mise.local.toml` is gitignored; `mise.toml` has a commented example.
