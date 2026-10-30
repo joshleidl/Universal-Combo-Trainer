@@ -18,7 +18,7 @@ describe('app settings storage', () => {
 
   it('round-trips saved settings', () => {
     const st = memoryStorage();
-    const s = { strict: false, sound: true, metronome: true, volume: 0.25, latencyOffsetMs: { keyboard: 12.5, gamepad: -4 } };
+    const s = { strict: false, sound: true, metronome: true, volume: 0.25, latencyOffsetMs: { keyboard: 12.5, gamepad: -4 }, padBannerDismissed: true };
     saveSettings(st, s);
     expect(loadSettings(st)).toEqual(s);
   });

@@ -19,6 +19,8 @@ export interface AppSettings {
   volume: number;
   /** Subtracted from press timestamps before grading, per source (SPEC §6). */
   latencyOffsetMs: Record<InputSource, number>;
+  /** The user dismissed the "press a button to wake your controller" banner. */
+  padBannerDismissed: boolean;
 }
 
 /** Sound is off by default (SPEC §7). */
@@ -28,6 +30,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   metronome: false,
   volume: 0.6,
   latencyOffsetMs: { keyboard: 0, gamepad: 0 },
+  padBannerDismissed: false,
 };
 
 /** True for a usable latency offset: a finite number within ±MAX_LATENCY_OFFSET_MS. */
@@ -63,6 +66,7 @@ export function parseSettings(v: unknown): AppSettings {
     strict: bool(r.strict, d.strict),
     sound: bool(r.sound, d.sound),
     metronome: bool(r.metronome, d.metronome),
+    padBannerDismissed: bool(r.padBannerDismissed, d.padBannerDismissed),
     volume,
     latencyOffsetMs: {
       keyboard: isLatencyOffset(lat.keyboard) ? lat.keyboard : d.latencyOffsetMs.keyboard,

@@ -10,6 +10,7 @@ import { el } from './ui/dom';
 import { decodeCombo, shareCodeFromHash } from './combo/share';
 import { cloneCombo } from './combo/edit';
 import { initialSession, isDirty, renderEditorPage } from './ui/editor';
+import { createPadBanner } from './ui/padBanner';
 import { newPracticeMemory, renderPracticePage, type SettingsHolder } from './ui/practice';
 
 /** localStorage, or an in-memory stand-in when the browser blocks it (e.g. some private modes). */
@@ -75,6 +76,7 @@ if (app) {
   });
   const page = el('main');
   app.replaceChildren(
+    createPadBanner(settings),
     el('header', { className: 'app-header' }, [
       el('h1', { textContent: 'Combo Timing Trainer' }),
       el('nav', {}, navLinks),

@@ -389,6 +389,13 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - No page scrolls sideways at 375 px.
   - There is still no on-screen touch input for presses; a phone needs a keyboard or controller (desktop is the primary target, §7).
 
+### Controller wake-up banner (2026-10-30, after Layer 5)
+- **Why:** browsers hide gamepads from a page until a button is pressed on them, so a stick can look "not working" until it's touched. The page can't tell "no pad plugged in" from "pad not woken yet".
+- **Behavior:** a banner at the top of every page says "Using a controller or arcade stick? Press any button on it to wake it up…" whenever no pad is detected. When a pad appears while it's showing, it turns green with "✓ Controller detected: <name>" for 2.5 s (`PAD_DETECTED_MS`), then hides. A pad that is already detected when the page loads shows nothing. If every pad disconnects, the request comes back.
+- **Dismiss:** keyboard-only users would otherwise see it on every visit, so the banner has a Dismiss button. Dismissal is saved (`padBannerDismissed` in `uct.settings.v1`) and also skips the "detected" message. There's no button to undo it yet; the Controls and debug pages still say how to wake a pad.
+- **Pad names:** `padDisplayName` trims browser extras from `Gamepad.id` (Chrome's "(STANDARD GAMEPAD Vendor: … Product: …)", Firefox's "2c22-2000-" prefix).
+- **Detection:** the app shell checks `navigator.getGamepads()` every 250 ms and on `gamepadconnected` / `gamepaddisconnected`. The state logic is pure (`input/wake.ts`) and unit tested; `ui/padBanner.ts` only renders.
+
 ### Tooling (2026-10-29)
 - **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.
 - **mise** pins the Node version (`mise.toml`, Node 24.14.0) and provides task shortcuts (`mise run test`, `dev`, `build`, `typecheck`, `install`) that wrap the npm scripts. The npm scripts stay the source of truth.

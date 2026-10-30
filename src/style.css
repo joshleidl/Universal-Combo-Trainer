@@ -172,6 +172,37 @@ input {
   margin: 0 0 12px;
 }
 
+/* App-wide "press a button to wake your controller" banner. */
+.pad-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--current-bg);
+  border: 1px solid var(--accent);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.pad-banner[hidden] {
+  display: none;
+}
+
+.pad-banner-text {
+  flex: 1;
+}
+
+.pad-banner.detected {
+  background: var(--ok-bg);
+  border-color: var(--ok);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.pad-banner-dismiss {
+  flex: none;
+}
+
 .warning {
   background: var(--warn-bg);
   color: var(--warn-text);
