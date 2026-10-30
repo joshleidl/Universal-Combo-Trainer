@@ -22,6 +22,7 @@ import {
   type IntervalSummary,
   type PollMode,
 } from '../input';
+import { el } from './dom';
 
 const MAX_LOG_ROWS = 50;
 const FPS_OPTIONS = [30, 60, 120];
@@ -34,16 +35,6 @@ const POLL_MODES: Record<string, PollMode> = {
 };
 
 const fmt = (ms: number, digits = 2) => ms.toFixed(digits);
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Partial<HTMLElementTagNameMap[K]> = {},
-  children: (Node | string)[] = [],
-): HTMLElementTagNameMap[K] {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...children);
-  return node;
-}
 
 export function renderDebugPage(root: HTMLElement): () => void {
   let fps = 60;
@@ -87,8 +78,8 @@ export function renderDebugPage(root: HTMLElement): () => void {
 
   root.replaceChildren(
     el('header', {}, [
-      el('h1', { textContent: 'Combo Timing Trainer' }),
-      el('p', { className: 'sub', textContent: 'Input debug — Layer 2' }),
+      el('h2', { className: 'page-title', textContent: 'Input debug' }),
+      el('p', { className: 'sub', textContent: 'Live presses, timestamps, and gamepad polling.' }),
     ]),
     el('section', { className: 'controls' }, [
       el('label', {}, ['Target framerate ', fpsSelect]),

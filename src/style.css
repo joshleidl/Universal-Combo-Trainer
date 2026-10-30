@@ -8,6 +8,10 @@
   --warn-bg: #fff4d6;
   --warn-text: #6b4a00;
   --unmapped: #8a929d;
+  --danger: #c0392b;
+  --error-bg: #fde7e4;
+  --error-text: #8a1f12;
+  --current-bg: #e8f0fd;
   color-scheme: light dark;
 }
 
@@ -22,6 +26,10 @@
     --warn-bg: #3a2f10;
     --warn-text: #f4d58a;
     --unmapped: #6b737e;
+    --danger: #ff7b6b;
+    --error-bg: #3d1a16;
+    --error-text: #ffb4a8;
+    --current-bg: #1c2a42;
   }
 }
 
@@ -71,7 +79,8 @@ h2:not(:first-child) {
 }
 
 select,
-button {
+button,
+input {
   font: inherit;
   padding: 4px 8px;
   border: 1px solid var(--border);
@@ -82,6 +91,21 @@ button {
 
 button {
   cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+input {
+  min-width: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .card {
@@ -165,7 +189,212 @@ tr.empty td {
   color: var(--muted);
 }
 
+/* --- app shell ------------------------------------------------------------ */
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+
+.app-header nav {
+  display: flex;
+  gap: 4px;
+}
+
+.app-header nav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.app-header nav a[aria-current='page'] {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.page-title {
+  font-size: 1.15rem;
+}
+
+/* --- combo editor ---------------------------------------------------------- */
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.card-head h2 {
+  margin: 0;
+}
+
+.combo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.combo-list .empty {
+  color: var(--muted);
+}
+
+.combo {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+}
+
+.combo.current {
+  border-color: var(--accent);
+  background: var(--current-bg);
+}
+
+.combo-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.combo-meta {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field > span {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.field.grow {
+  flex: 1 1 180px;
+}
+
+.num-input {
+  width: 6.5em;
+}
+
+.mode-hints .hint {
+  margin: 2px 0;
+  font-size: 0.9em;
+}
+
+.mode-hints {
+  margin-bottom: 8px;
+}
+
+.steps {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.step-num {
+  align-self: center;
+  min-width: 1.6em;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.step-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.step-actions button {
+  min-width: 2.2em;
+}
+
+.step-window {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 0.85em;
+  padding-left: calc(1.6em + 12px);
+  font-variant-numeric: tabular-nums;
+}
+
+.step-window:empty {
+  display: none;
+}
+
+.errors {
+  background: var(--error-bg);
+  color: var(--error-text);
+  border-radius: 6px;
+  margin: 12px 0 0;
+  padding: 8px 12px 8px 28px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+.status {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+.status.dirty {
+  color: var(--warn-text);
+}
+
+.status.error {
+  color: var(--danger);
+}
+
 @media (max-width: 600px) {
+  .step-window {
+    padding-left: 0;
+  }
+
   .stats {
     grid-template-columns: 1fr;
   }

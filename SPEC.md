@@ -73,11 +73,19 @@ src/
     practice.ts    run attempts, show live feedback
     results.ts     timeline + stats
     calibrate.ts   latency calibration screen
+    debug.ts       input debug page (Layer 2)
+    dom.ts         shared element helper
+  combo/         # pure combo-editing helpers + shipped examples; no DOM; unit tested
+    edit.ts
+    examples.ts
   storage/
-    combos.ts      save/load via localStorage
-  main.ts
+    combos.ts      save/load via localStorage (storage injected, so it's testable in Node)
+  main.ts        page shell + hash routing (#debug = input debug page)
 tests/
   engine/*.test.ts
+  input/*.test.ts
+  combo/*.test.ts
+  storage/*.test.ts
 ```
 
 Rules:
@@ -185,7 +193,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - If the backup fails (e.g. the folder isn't reachable), the commit stands. Claude reports the failure instead of retrying silently.
 
 ## Next session
-- Nothing queued. Release events on the debug page were done and confirmed on hardware on 2026-10-30 (see Decisions log). Layer 3 is next.
+- Layer 3 (sequence editor + storage) is built and awaiting review (2026-10-30). Layer 4 starts after approval.
 
 ## Decisions log
 
@@ -226,6 +234,26 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Keyboard:** a keyup only counts as a release if its press was reported. Keys held across a window blur (held set cleared) or pressed with Ctrl/Cmd/Alt give no release.
 - **Gamepad:** releases use the same timestamp rules as presses. A button held when the pad is first seen gives no press but does give a release. A pad that disconnects gives no releases. Axis directions release below the 0.4 hysteresis threshold, and hat diagonals release one direction at a time.
 - **Debug log:** one row per edge, with an Edge column. "Since last press" is press-to-press only. Releases show hold time (release − press) in ms and frames (floored, like grading), or "—" when the press wasn't seen. Clearing the log keeps the press times of held controls.
+
+### Layer 3 (2026-10-30)
+- **New `combo/` module:** pure editing helpers (`newCombo`, `addStep`, `removeStep`, `moveStep`, `updateStep`, `combosEqual`, `onTimeWindow`) and the shipped examples. They aren't timing logic, so they stay out of `engine/` and its API is unchanged; they aren't DOM, so they stay out of `ui/` and are unit tested.
+- **Storage format:** one `localStorage` key, `uct.combos.v1`, holding `{ version: 1, combos: [{ id, combo }] }` in save order. The id lives beside the engine `Combo`, so the engine type is unchanged. The last-opened combo id is kept in `uct.lastComboId`, so a refresh reopens it.
+- **Ids** are `c-<time>-<random>` rather than `crypto.randomUUID()`, which only works on secure origins (it fails on a LAN address over http, e.g. testing on a phone).
+- **Storage is injected** (`StorageLike`), so tests use an in-memory fake and need no jsdom. If the browser blocks `localStorage`, the app uses the in-memory store and shows a warning that combos won't persist.
+- **Examples** (3 game-agnostic drills) are seeded only when `uct.combos.v1` doesn't exist. They are ordinary saved combos: editable and deletable. Deleting all of them doesn't bring them back. No "restore examples" button for now.
+- **Saving validates:** a combo is saved only if its name isn't blank and it passes the engine's `validateCombo`. The editor shows the problems and disables Save until they're fixed. Names are trimmed on save, blank labels are dropped, and unknown fields are stripped. Names don't need to be unique.
+- **Damaged data:** if stored data can't be read (bad JSON, unknown version, invalid entries), the raw text is copied to `uct.combos.v1.backup`, readable entries are kept, and the cleaned data is written back. Nothing is reseeded.
+- **Rename** is done by editing the name field and saving. There's no separate rename action; `ComboStore` has `list`, `get`, `create`, `update`, `delete`.
+- **Save as new** creates a copy. If the name is unchanged it gets " (copy)" appended so the two can be told apart.
+- **Unsaved changes:** the editor compares the draft with the last saved version. Switching combos, starting a new one, or deleting asks before discarding changes, and closing the tab triggers the browser's leave-page warning. The draft is kept in memory when visiting the debug page and coming back.
+- **Reorder** uses ↑/↓ buttons per step (works with keyboard and touch). No drag and drop.
+- **Add step** copies the last step's button, target frame and tolerances (not its label).
+- **Step 1 in first-input mode:** its target frame and tolerances are disabled in the editor, since the engine doesn't grade its timing. The stored values are kept.
+- **Button choices** are the fixed `BUTTON_IDS` list. An unknown button in loaded data stays selectable instead of being changed silently.
+- **fps** is a number input with 30/60/120 suggestions; any positive number is allowed, matching the engine.
+- **On-time window hint:** each step shows its on-time frames and the ms span they cover (start of the first frame to the end of the last), e.g. "frames 10 to 14, 166.7 to 250.0 ms after the previous input".
+- **Start mode** can be set to countdown in the editor now; the countdown itself is Layer 5 and the hint says so.
+- **Routing:** the editor is the home page; the input debug page moved to `#debug`. A shared header has links to both.
 
 ### Tooling (2026-10-29)
 - **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.
