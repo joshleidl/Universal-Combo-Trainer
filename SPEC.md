@@ -232,6 +232,12 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - **Grouped inputs:** a step made of several inputs. They can be *sequential*, like a motion input (quarter-circle forward = DOWN, DOWN+RIGHT, RIGHT, then a button), or *simultaneous*, like a chord (two buttons within a few frames of each other).
   - **Input leniency for motions:** accept shortcuts the way many games do, e.g. DOWN → RIGHT counts as a quarter-circle forward even though DOWN+RIGHT was skipped. Leniency should be adjustable per group.
   - Motion and chord inputs are out of scope for now (§9). This changes the engine's `Step` type and grading, so a written proposal and spec update come before any code (CLAUDE.md).
+- **Bug: metronome tick on target frames doesn't always work as intended** (reported 2026-10-30). Symptom: ticks were missing entirely in the attempts the user watched on another computer (not the dev machine). Timing mode and combos not yet recorded. Get a repro before fixing. Things to check:
+  - Settings are saved per browser (`localStorage`) and the metronome is off by default, so on a new computer it may simply have been off. Rule this out first.
+  - Audio may not have started on that computer: browsers block sound until the page gets a user gesture, and a gamepad press may not count as one. Check whether other sounds (countdown, on-time/miss) played there.
+  - Relative mode only knows the awaited step's tick after the previous press, and ticks already in the past are skipped by design (see Decisions log, "Metronome"). Short gaps may make ticks look like they are missing.
+  - Relative ticks are timed from the previous press's exact timestamp, so they will move once the approved fixed frame grid lands. Fix and test both together.
+  - Ticks are cancelled when their step is graded or the attempt ends; check that a still-needed tick isn't cancelled early, and that a stale one isn't left playing.
 
 ## Next session
 - Layer 4 (practice mode + feedback) plus input remapping and the MISC1/MISC2 buttons were reviewed and committed on 2026-10-30.
