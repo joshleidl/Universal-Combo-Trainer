@@ -52,7 +52,14 @@ export interface TimingGrade {
 
 /** Grades a correct-button press by its elapsed time since the reference (SPEC §3 steps 2–5). */
 export function gradeTiming(step: Step, elapsedMs: number, fps: number): TimingGrade {
-  const inputFrame = msToFrame(elapsedMs, fps);
+  return gradeFrames(step, msToFrame(elapsedMs, fps), elapsedMs, fps);
+}
+
+/**
+ * Grades a press whose frame count is already known. `inputFrame` is frames since the
+ * reference frame; `elapsedMs` is ms since the start of that reference frame.
+ */
+export function gradeFrames(step: Step, inputFrame: number, elapsedMs: number, fps: number): TimingGrade {
   const deltaFrames = inputFrame - step.targetFrame;
   const deltaMs = elapsedMs - frameToMs(step.targetFrame, fps);
 

@@ -2,7 +2,7 @@
 // input fall, in frames since frame 0. Pure; the UI only scales these numbers to pixels.
 
 import type { AttemptState } from '../engine/attempt';
-import { correctedTimestamp, frameMs, lastAcceptedFrame } from '../engine/timing';
+import { correctedTimestamp, frameMs, lastAcceptedFrame, msToFrame } from '../engine/timing';
 import type { ButtonId, Grade } from '../engine/types';
 
 export interface TimelineStep {
@@ -50,11 +50,12 @@ export function buildTimeline(state: AttemptState): Timeline | null {
     const step = combo.steps[r.stepIndex];
     if (!step) throw new Error(`No step at index ${r.stepIndex}`);
     const prev = results[i - 1];
-    const refTime =
+    // Relative windows start at the frame the previous press landed on (fixed frame grid),
+    // so they line up with the ruler's frame ticks.
+    const ref =
       combo.timingMode === 'relative' && i > 0 && prev?.correctedTimestamp !== undefined
-        ? prev.correctedTimestamp
-        : frame0;
-    const ref = toFrame(refTime);
+        ? msToFrame(prev.correctedTimestamp - frame0, combo.fps)
+        : 0;
     const isStart = combo.startMode === 'firstInput' && r.stepIndex === 0;
     const out: TimelineStep = {
       stepIndex: r.stepIndex,

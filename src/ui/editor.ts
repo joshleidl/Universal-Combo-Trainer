@@ -33,7 +33,7 @@ export interface EditorSession {
 const FPS_PRESETS = [30, 60, 120];
 
 const TIMING_HINTS: Record<TimingMode, string> = {
-  relative: 'Relative: each step’s target frame counts from the previous input.',
+  relative: 'Relative: each step’s target frame counts from the frame the previous input landed on.',
   absolute: 'Absolute: every target frame counts from frame 0 of the attempt.',
 };
 const START_HINTS: Record<StartMode, string> = {
@@ -230,7 +230,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
   function refresh() {
     const d = session.draft;
     const firstInputStart = d.startMode === 'firstInput';
-    const from = d.timingMode === 'relative' ? 'after the previous input' : 'after frame 0';
+    const from = d.timingMode === 'relative' ? 'after the start of the previous input’s frame' : 'after frame 0';
     const fpsOk = Number.isFinite(d.fps) && d.fps > 0;
 
     modeHints.replaceChildren(

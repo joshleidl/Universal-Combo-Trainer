@@ -5,7 +5,8 @@
 import {
   DEFAULT_SETTINGS,
   correctedTimestamp,
-  gradeTiming,
+  frameToMs,
+  gradeFrames,
   lastAcceptedFrame,
   msToFrame,
 } from './timing';
@@ -28,8 +29,8 @@ export interface AttemptState {
   readonly ignoredPresses: readonly PressEvent[];
   /** Frame 0 timestamp (latency-corrected for firstInput; the countdown time for countdown). */
   readonly frame0: number | null;
-  /** Corrected timestamp of the most recent graded press. */
-  readonly lastInput: number | null;
+  /** Grid frame (frames since frame 0) the most recent graded press landed on. */
+  readonly lastInputFrame: number | null;
   readonly endedBy: AttemptEnd | null;
 }
 
@@ -69,7 +70,7 @@ export function createAttempt(combo: Combo, settings: Settings = DEFAULT_SETTING
     results: [],
     ignoredPresses: [],
     frame0: null,
-    lastInput: null,
+    lastInputFrame: null,
     endedBy: null,
   };
 }
@@ -97,12 +98,21 @@ export function currentStepIndex(state: AttemptState): number | null {
   return null;
 }
 
-/** Timestamp the given step is measured from. */
-function referenceFor(state: AttemptState, stepIndex: number): number {
-  const ref =
-    state.combo.timingMode === 'relative' && stepIndex > 0 ? state.lastInput : state.frame0;
-  if (ref === null) throw new Error('No reference timestamp: attempt is not running');
-  return ref;
+/**
+ * Where the given step is counted from, on the fixed frame grid that starts at frame 0
+ * (SPEC Decisions log, "Fixed frame grid"). Relative steps count from the frame the previous
+ * press landed on; absolute steps and the first step count from frame 0.
+ */
+function referenceFor(state: AttemptState, stepIndex: number): { frame0: number; refFrame: number } {
+  if (state.frame0 === null) throw new Error('No frame 0: attempt is not running');
+  const relative = state.combo.timingMode === 'relative' && stepIndex > 0;
+  if (relative && state.lastInputFrame === null) throw new Error('No previous input frame');
+  return { frame0: state.frame0, refFrame: relative ? (state.lastInputFrame as number) : 0 };
+}
+
+/** Frames since frame 0 for a corrected timestamp. */
+function gridFrame(t: number, frame0: number, fps: number): number {
+  return msToFrame(t - frame0, fps);
 }
 
 function stepAt(state: AttemptState, index: number): Step {
@@ -158,7 +168,7 @@ function pressWhileArmed(state: AttemptState, ev: PressEvent): AttemptState {
     ...state,
     phase: 'running',
     frame0: t,
-    lastInput: t,
+    lastInputFrame: 0,
     results: [result],
   };
   return state.combo.steps.length === 1 ? { ...next, phase: 'done', endedBy: 'completed' } : next;
@@ -169,14 +179,18 @@ function pressWhileRunning(state: AttemptState, ev: PressEvent): AttemptState {
   const step = stepAt(state, index);
   const fps = state.combo.fps;
   const t = correctedTimestamp(ev, state.settings);
-  const elapsedMs = t - referenceFor(state, index);
+  const { frame0, refFrame } = referenceFor(state, index);
+  const pressFrame = gridFrame(t, frame0, fps);
+  // Whole-frame math on the grid, so float error can't move a press across a frame edge.
+  const inputFrame = pressFrame - refFrame;
+  const elapsedMs = t - (frame0 + frameToMs(refFrame, fps));
 
   // A press past the timeout means the step was already missed, whatever the button.
-  if (msToFrame(elapsedMs, fps) > lastAcceptedFrame(step, state.settings.timeoutFrames)) {
+  if (inputFrame > lastAcceptedFrame(step, state.settings.timeoutFrames)) {
     return finish(state, missedResult(state, index), 'missed');
   }
 
-  const timing = gradeTiming(step, elapsedMs, fps);
+  const timing = gradeFrames(step, inputFrame, elapsedMs, fps);
   const base = {
     stepIndex: index,
     expected: step.button,
@@ -195,7 +209,7 @@ function pressWhileRunning(state: AttemptState, ev: PressEvent): AttemptState {
 
   const result: StepResult = { ...base, grade: timing.grade };
   if (index === state.combo.steps.length - 1) return finish(state, result, 'completed');
-  return { ...state, results: [...state.results, result], lastInput: t };
+  return { ...state, results: [...state.results, result], lastInputFrame: pressFrame };
 }
 
 /**
@@ -209,8 +223,9 @@ export function tick(state: AttemptState, now: number): AttemptState {
   const index = state.results.length;
   const step = stepAt(state, index);
   const maxOffset = Math.max(...Object.values(state.settings.latencyOffsetMs));
-  const elapsedMs = now - maxOffset - referenceFor(state, index);
-  if (msToFrame(elapsedMs, state.combo.fps) > lastAcceptedFrame(step, state.settings.timeoutFrames)) {
+  const { frame0, refFrame } = referenceFor(state, index);
+  const frames = gridFrame(now - maxOffset, frame0, state.combo.fps) - refFrame;
+  if (frames > lastAcceptedFrame(step, state.settings.timeoutFrames)) {
     return finish(state, missedResult(state, index), 'missed');
   }
   return state;

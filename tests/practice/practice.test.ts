@@ -390,14 +390,15 @@ describe('sound cues', () => {
 describe('metronome ticks', () => {
   const mid = (frame: number) => f(frame + METRONOME_FRAME_POINT);
 
-  it('relative: only the awaited step, from the previous press', () => {
+  it('relative: only the awaited step, from the frame the previous press landed on', () => {
     const c = combo([s('LP', 0), s('MP', 10), s('HP', 5)]);
     let st = createPractice(c, DEFAULT_SETTINGS);
     expect(metronomeTicks(st.attempt)).toEqual([]);
     st = practicePress(st, p('LP', T0));
     expect(metronomeTicks(st.attempt).map((t) => t.at)).toEqual([T0 + mid(10)]);
     st = practicePress(st, p('MP', T0 + 170));
-    expect(metronomeTicks(st.attempt).map((t) => t.at)).toEqual([T0 + 170 + mid(5)]);
+    // MP at 170 ms lands on frame 10, so HP (gap 5) ticks in the middle of frame 15.
+    expect(metronomeTicks(st.attempt).map((t) => t.at)).toEqual([T0 + mid(15)]);
   });
 
   it('absolute: every remaining step from frame 0, skipping the start step', () => {
@@ -431,7 +432,7 @@ describe('timing preview', () => {
     expect(timingPreview(c)).toEqual([
       { kind: 'press', at: L, stepIndex: 0 },
       { kind: 'press', at: L + mid(12), stepIndex: 1 },
-      { kind: 'press', at: L + mid(12) + mid(15), stepIndex: 2 },
+      { kind: 'press', at: L + mid(27), stepIndex: 2 },
     ]);
   });
 
@@ -449,7 +450,7 @@ describe('timing preview', () => {
       { kind: 'beat', at: L + 2 * COUNTDOWN_BEAT_MS },
       { kind: 'go', at: go },
       { kind: 'press', at: go + mid(6), stepIndex: 0 },
-      { kind: 'press', at: go + mid(6) + mid(10), stepIndex: 1 },
+      { kind: 'press', at: go + mid(16), stepIndex: 1 },
     ]);
   });
 
@@ -521,19 +522,17 @@ describe('session stats', () => {
 // --- timeline --------------------------------------------------------------
 
 describe('timeline', () => {
-  it('places relative windows after the previous actual input', () => {
+  it('places relative windows from the previous input\'s frame', () => {
     const c = combo([s('LP', 0), s('MP', 10, 1, 2), s('HP', 5)]);
-    // MP lands 3 frames + a bit after LP; HP's window is measured from there.
+    // MP lands 4 ms into frame 12; HP's window is counted from the start of frame 12.
     const st = engineRun(c, [p('LP', T0), p('MP', T0 + f(12) + 4), p('HP', T0 + f(12) + 4 + f(5))]);
     const tl = buildTimeline(st)!;
     expect(tl.steps.map((x) => x.isStart)).toEqual([true, false, false]);
     expect(tl.steps[0]).toMatchObject({ input: 0, windowStart: 0, windowEnd: 0 });
     expect(tl.steps[1]).toMatchObject({ windowStart: 9, windowEnd: 13, target: 10, grade: 'ON_TIME' });
     expect(tl.steps[1]!.input).toBeCloseTo(12 + 4 / f(1));
-    const mpFrame = tl.steps[1]!.input!;
-    expect(tl.steps[2]!.windowStart).toBeCloseTo(mpFrame + 5);
-    expect(tl.steps[2]!.windowEnd).toBeCloseTo(mpFrame + 6);
-    expect(tl.endFrame).toBe(Math.ceil(mpFrame + 6) + 2);
+    expect(tl.steps[2]).toMatchObject({ windowStart: 17, windowEnd: 18, target: 17 });
+    expect(tl.endFrame).toBe(20);
   });
 
   it('places absolute windows from frame 0', () => {

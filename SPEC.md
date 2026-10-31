@@ -33,15 +33,15 @@ A **combo** is an ordered list of **steps**. Each step has:
 Combo-level settings:
 - `fps`
 - `timingMode`:
-  - `relative` (**default**): each step's `targetFrame` is measured from the **previous step's actual input**. Matches how links are usually described ("a 3-frame gap after the last hit").
+  - `relative` (**default**): each step's `targetFrame` is counted from the **frame the previous step's input landed on**. Matches how links are usually described ("a 3-frame gap after the last hit"). Frames form one fixed grid per attempt that starts at frame 0; presses never move it (see Decisions log, "Fixed frame grid").
   - `absolute`: each step's `targetFrame` is measured from the attempt's frame 0.
 - `startMode`:
   - `firstInput` (**default**): the first step's press defines frame 0 and is always graded on time (button correctness only).
   - `countdown`: a visual/audio countdown defines frame 0, and step 1 is graded against its `targetFrame` like any other step.
 
 ### Grading (per step)
-1. `elapsedMs` = input timestamp − reference timestamp (previous input or frame 0, per `timingMode`), after applying the latency offset (§6).
-2. `inputFrame = floor(elapsedMs / frameMs)`.
+1. The press lands on grid frame `floor((input timestamp − frame 0) / frameMs)`, after applying the latency offset (§6). The reference frame is the previous input's grid frame (`relative`) or frame 0 (`absolute`). `elapsedMs` = input timestamp − start of the reference frame.
+2. `inputFrame` = press's grid frame − reference frame.
 3. `deltaFrames = inputFrame − targetFrame`.
 4. Result:
    - `ON_TIME` if `−tolEarly ≤ deltaFrames ≤ tolLate`
@@ -254,7 +254,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Press events carry `source`** (`keyboard` | `gamepad`) so the engine can apply the right latency offset.
 - **Frame math:** `inputFrame` is computed as `floor(elapsedMs * fps / 1000 + 1e-9)`. This is the same as §3's formula, but it avoids float error at exact frame boundaries (e.g. 50 ms at 60 fps is frame 3).
 - **Validation:** `createAttempt` throws unless there is at least one step, `fps > 0`, `targetFrame`/`tolEarly`/`tolLate`/`timeoutFrames` are integers ≥ 0, and every step has a button.
-- **MISSED window:** the last accepted frame is `targetFrame + tolLate + timeoutFrames` (inclusive). In relative mode it is measured from the previous input, like grading. A press after the window grades the step `MISSED` (no timing fields) whatever its button, so the result is the same whether or not `tick()` ran first. A miss takes priority over a wrong button.
+- **MISSED window:** the last accepted frame is `targetFrame + tolLate + timeoutFrames` (inclusive). In relative mode it is counted from the previous input's grid frame, like grading. A press after the window grades the step `MISSED` (no timing fields) whatever its button, so the result is the same whether or not `tick()` ran first. A miss takes priority over a wrong button.
 - **`tick(now)`** takes a raw timestamp and subtracts the *largest* latency offset, so it never declares a miss while a press that would still count could arrive.
 - **firstInput start:** a wrong first press is `WRONG_BUTTON` (strict) or ignored and logged (non-strict). The first correct press gets `elapsedMs`, `inputFrame`, `deltaFrames` and `deltaMs` all 0.
 - **Countdown start:** frame 0 is the timestamp passed to `start()` and is not latency-corrected (it is a stimulus time, not an input). Presses before `start()` are ignored. `start()` may be given a future time; presses before it grade `EARLY` with negative frames.
@@ -301,7 +301,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Step 1 in first-input mode:** its target frame and tolerances are disabled in the editor, since the engine doesn't grade its timing. The stored values are kept.
 - **Button choices** are the fixed `BUTTON_IDS` list. An unknown button in loaded data stays selectable instead of being changed silently.
 - **fps** is a number input with 30/60/120 suggestions; any positive number is allowed, matching the engine.
-- **On-time window hint:** each step shows its on-time frames and the ms span they cover (start of the first frame to the end of the last), e.g. "frames 10 to 14, 166.7 to 250.0 ms after the previous input".
+- **On-time window hint:** each step shows its on-time frames and the ms span they cover (start of the first frame to the end of the last), e.g. "frames 10 to 14, 166.7 to 250.0 ms after the start of the previous input's frame".
 - **Start mode** can be set to countdown in the editor now; the countdown itself is Layer 5 and the hint says so.
 - **Routing:** the editor is the home page; the input debug page moved to `#debug`. A shared header has links to both.
 
@@ -313,7 +313,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Quick restart:** Space on the keyboard, or Back (8) / Start (9) on a standard-layout pad, re-arms immediately. These only count as restart while they're unmapped. Restarting during an attempt abandons it, and an abandoned attempt isn't counted in the stats. Space's default action (scrolling, clicking the focused button) is blocked on the practice page.
 - **Results stay on screen:** the last finished attempt stays on screen until the next attempt grades its first step.
 - **Ticks:** a `requestAnimationFrame` loop calls `practiceTick(performance.now())` to declare misses and re-arm. A 250 ms timer does the same while rAF is paused in a background tab. Grading itself only uses press timestamps, so rendering speed doesn't affect results.
-- **Timeline:** one lane per graded step on a frame ruler that starts at frame 0. It shows the on-time window (shaded), the start of the target frame (line), and the latency-corrected press (dot). A missed step shows its deadline. A wrong button shows which button was pressed. In non-strict mode, ignored presses get their own lane. Relative windows are placed after the previous actual press. Steps never reached aren't drawn. The ruler ends 2 frames past the last item. If the attempt ended on its first press, there is no timeline.
+- **Timeline:** one lane per graded step on a frame ruler that starts at frame 0. It shows the on-time window (shaded), the start of the target frame (line), and the latency-corrected press (dot). A missed step shows its deadline. A wrong button shows which button was pressed. In non-strict mode, ignored presses get their own lane. Relative windows start at the frame the previous press landed on (fixed frame grid), so they line up with the ruler. Steps never reached aren't drawn. The ruler ends 2 frames past the last item. If the attempt ended on its first press, there is no timeline.
 - **Stats:**
   - **On-time rate** = on-time / times the step was reached. A step counts as reached when it got any grade, including MISSED and WRONG_BUTTON.
   - **Average and spread** use `deltaFrames` of correct-button presses only. Spread is the population standard deviation.
@@ -362,13 +362,13 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - Scheduled beats are cancelled when a countdown restarts or stops. Scheduled ticks are cancelled when their step is graded or the attempt ends.
 - **Metronome:**
   - The tick plays at the **middle** of each target frame (`METRONOME_FRAME_POINT = 0.5`), the safest moment to press.
-  - Relative timing only knows the awaited step's tick, from the previous actual press. Absolute timing schedules every remaining step from frame 0.
+  - Relative timing only knows the awaited step's tick, counted from the frame the previous press landed on (fixed frame grid). Absolute timing schedules every remaining step from frame 0.
   - No tick for the first-input start step. Ticks already in the past when they become known (very short gaps) are skipped.
 - **Settings:** "Sounds" (event sounds and countdown beats) and "Metronome tick on target frames" are separate checkboxes on the practice page, with one volume slider. Both are off by default (§7). Turning one on plays a short test sound. The countdown always shows on screen; it only makes sound with Sounds on.
 - **Audio unlock:** browsers keep audio suspended until a click or key press on the page, and gamepad presses don't count. The app resumes audio on any click or key press while a sound option is on. The practice page shows a note while audio is still blocked.
 - **Saved settings:** `localStorage` key `uct.settings.v1` holds `{ version: 1, strict, sound, metronome, volume }`. This replaces Layer 4's in-memory strict mode. Nothing is stored until the first change. A missing or malformed field falls back to its own default; an unreadable value or unknown version gives all defaults (no backup copy, since nothing hard to recreate is lost). Part B will add the latency offsets here.
 - **Hear timing** (added 2026-10-30 at the user's request, after trying the Part A sounds): a button on the practice page plays the combo's expected timing.
-  - One tone per step, where a press on the middle of its target frame would land (the metronome point). Relative steps follow the previous expected press; absolute steps count from frame 0. The first-input start step is frame 0. Countdown combos play the 3 beats and Go first, with Go as frame 0. A 300 ms lead-in comes before the first sound.
+  - One tone per step, where a press on the middle of its target frame would land (the metronome point). Relative steps count whole frames from the previous step's target frame, and the half frame is added only when placing each sound, so it doesn't build up; absolute steps count from frame 0. The first-input start step is frame 0. Countdown combos play the 3 beats and Go first, with Go as frame 0. A 300 ms lead-in comes before the first sound.
   - Each step card is outlined while its tone plays.
   - It plays even with Sounds off, since the user asked to hear it. Volume still applies. Clicking again restarts it.
   - Any button press stops it, so its tones don't mix with an attempt. It doesn't change the practice state.
@@ -418,3 +418,11 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 - **Transcript script** is plain Node (`scripts/backup-transcript.mjs`, no dependencies), using the Node version mise already pins. It needs no build step and adds nothing to the app's stack. The backup folder is a mise env var, so the script has no personal paths in it.
 - **mise** pins the Node version (`mise.toml`, Node 24.14.0) and provides task shortcuts (`mise run test`, `dev`, `build`, `typecheck`, `install`) that wrap the npm scripts. The npm scripts stay the source of truth.
 - **Transcript folder moved to `mise.local.toml`** (2026-10-30): the repo is public, so the personal path (Windows username, folder layout) no longer lives in tracked files. `mise.local.toml` is gitignored; `mise.toml` has a commented example.
+
+### Fixed frame grid (2026-10-30, approved; implemented 2026-10-31)
+- **Problem:** in relative mode each step is timed from the previous press's exact timestamp, which usually falls partway through a frame. The grid restarts mid-frame on every press, so step 3 and later can be graded one frame short.
+- **Approved rule (relative mode):** one fixed frame grid per attempt, starting at frame 0 (the first input in first-input mode, Go in countdown mode). A press lands on `gridFrame = floor((t − frame0) / frameMs)`. A relative step is counted from the start of the frame the previous press landed on, not from the press's exact time. §3 now states this rule.
+- **Known limit:** the trainer can't see where the first press falls inside the game's own frame, so a gap can still differ from the real game by up to one frame.
+- **Absolute mode:** no change needed for now. It already counts every step from frame 0, so it is already on the fixed grid.
+- **Engine (2026-10-31):** `AttemptState` gains `lastInputFrame`, the grid frame of the previous graded press. Grading, the MISSED window and `tick()` count whole frames on the grid, so float error can't move a press across a frame edge. `elapsedMs` on a relative step is ms since the start of the previous press's frame. It replaces `lastInput` (ms), which nothing reads anymore. New `gradeFrames()` in `timing.ts` grades a known frame count; `gradeTiming()` is unchanged and calls it.
+- **Practice side (2026-10-31):** metronome ticks, the Hear timing preview and timeline windows count relative steps from the previous press's grid frame, like grading. The preview chains whole frames and adds the half frame only when placing each sound. The editor hints say "the frame the previous input landed on".

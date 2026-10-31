@@ -43,7 +43,7 @@ export interface MetronomeTick {
  */
 export function metronomeTicks(attempt: AttemptState): MetronomeTick[] {
   if (attempt.phase !== 'running' || attempt.frame0 === null) return [];
-  const { combo, results, frame0, lastInput } = attempt;
+  const { combo, results, frame0, lastInputFrame } = attempt;
   const next = results.length;
   const indexes =
     combo.timingMode === 'relative' ? [next] : combo.steps.map((_, i) => i).filter((i) => i >= next);
@@ -51,9 +51,10 @@ export function metronomeTicks(attempt: AttemptState): MetronomeTick[] {
   for (const i of indexes) {
     const step = combo.steps[i];
     if (!step || (combo.startMode === 'firstInput' && i === 0)) continue;
-    const ref = combo.timingMode === 'relative' && i > 0 ? lastInput : frame0;
-    if (ref === null) continue;
-    const at = ref + frameToMs(step.targetFrame + METRONOME_FRAME_POINT, combo.fps);
+    // Relative steps count from the frame the previous press landed on (fixed frame grid).
+    const refFrame = combo.timingMode === 'relative' && i > 0 ? lastInputFrame : 0;
+    if (refFrame === null) continue;
+    const at = frame0 + frameToMs(refFrame + step.targetFrame + METRONOME_FRAME_POINT, combo.fps);
     ticks.push({ key: `${frame0}:${i}:${at}`, at });
   }
   return ticks;
@@ -86,16 +87,20 @@ export function timingPreview(combo: Combo): PreviewSound[] {
   } else {
     frame0 = PREVIEW_LEAD_MS;
   }
-  let prev = frame0;
+  // Chain whole frames on the fixed grid; the half frame is added only when placing each sound,
+  // so it doesn't build up from step to step.
+  let prevFrame = 0;
   combo.steps.forEach((step, i) => {
     let at: number;
-    if (combo.startMode === 'firstInput' && i === 0) at = frame0;
-    else {
-      const ref = combo.timingMode === 'relative' && i > 0 ? prev : frame0;
-      at = ref + frameToMs(step.targetFrame + METRONOME_FRAME_POINT, combo.fps);
+    if (combo.startMode === 'firstInput' && i === 0) {
+      at = frame0;
+      prevFrame = 0;
+    } else {
+      const refFrame = combo.timingMode === 'relative' && i > 0 ? prevFrame : 0;
+      prevFrame = refFrame + step.targetFrame;
+      at = frame0 + frameToMs(prevFrame + METRONOME_FRAME_POINT, combo.fps);
     }
     sounds.push({ kind: 'press', at, stepIndex: i });
-    prev = at;
   });
   return sounds;
 }
