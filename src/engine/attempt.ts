@@ -100,7 +100,7 @@ export function currentStepIndex(state: AttemptState): number | null {
 
 /**
  * Where the given step is counted from, on the fixed frame grid that starts at frame 0
- * (SPEC Decisions log, "Fixed frame grid"). Relative steps count from the frame the previous
+ * (DECISIONS.md, "Fixed frame grid"). Relative steps count from the frame the previous
  * press landed on; absolute steps and the first step count from frame 0.
  */
 function referenceFor(state: AttemptState, stepIndex: number): { frame0: number; refFrame: number } {

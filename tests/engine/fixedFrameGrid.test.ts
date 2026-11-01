@@ -3,7 +3,7 @@ import { arm, attemptResult, createAttempt, press, start } from '../../src/engin
 import { DEFAULT_SETTINGS, frameToMs } from '../../src/engine/timing';
 import type { Combo, Grade, StartMode, Step } from '../../src/engine/types';
 
-// Fixed frame grid for relative mode (SPEC Decisions log, "Fixed frame grid").
+// Fixed frame grid for relative mode (DECISIONS.md, "Fixed frame grid").
 // One grid per attempt starts at frame 0. A press lands on floor((t − frame0) / frameMs),
 // and a relative step is counted from the start of the frame the previous press landed on,
 // not from that press's exact time. 60 FPS: one frame = 1000/60 ms.
