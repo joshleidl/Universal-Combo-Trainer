@@ -35,8 +35,8 @@ describe('frame gap table (relative mode, first press at t = 0)', () => {
       const combo: Combo = {
         name: `row ${r.row}`,
         steps: [
-          { button: 'LP', targetFrame: 0, tolEarly: 0, tolLate: 0 },
-          { button: 'MP', targetFrame: r.gap, tolEarly: r.tolEarly, tolLate: r.tolLate },
+          { buttons: ['LP'], targetFrame: 0, tolEarly: 0, tolLate: 0 },
+          { buttons: ['MP'], targetFrame: r.gap, tolEarly: r.tolEarly, tolLate: r.tolLate },
         ],
         fps: 60,
         timingMode: 'relative',

@@ -200,12 +200,21 @@ export function parseCombo(v: unknown): Combo | null {
 }
 
 function parseStep(v: unknown): Step | null {
-  if (!isRecord(v) || typeof v.button !== 'string') return null;
+  if (!isRecord(v)) return null;
+  // Combos saved before chords have a single `button`; they load as a one-button list.
+  const buttons = Array.isArray(v.buttons) ? v.buttons : typeof v.button === 'string' ? [v.button] : null;
+  if (!buttons || !buttons.every((b): b is string => typeof b === 'string')) return null;
   const { targetFrame, tolEarly, tolLate, label } = v;
   if (typeof targetFrame !== 'number' || typeof tolEarly !== 'number' || typeof tolLate !== 'number') return null;
   if (label !== undefined && typeof label !== 'string') return null;
-  const step: Step = { button: v.button, targetFrame, tolEarly, tolLate };
+  const step: Step = { buttons: [...buttons], targetFrame, tolEarly, tolLate };
   if (label?.trim()) step.label = label;
+  // Only chords keep a window; validation then checks it.
+  if (buttons.length > 1 && v.chordWindow !== undefined) {
+    const w = v.chordWindow;
+    if (!isRecord(w) || typeof w.size !== 'number' || (w.unit !== 'frames' && w.unit !== 'ms')) return null;
+    step.chordWindow = { size: w.size, unit: w.unit };
+  }
   return step;
 }
 

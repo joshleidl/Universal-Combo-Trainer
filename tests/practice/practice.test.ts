@@ -23,13 +23,13 @@ import {
   type PracticeState,
 } from '../../src/practice/session';
 import { METRONOME_FRAME_POINT, PREVIEW_LEAD_MS, metronomeTicks, practiceCues, timingPreview } from '../../src/practice/cues';
-import { emptyStats, recordAttempt, summarizeStep } from '../../src/practice/stats';
+import { emptyStats, emptyStepStats, recordAttempt, summarizeStep } from '../../src/practice/stats';
 import { buildTimeline, rulerStep } from '../../src/practice/timeline';
 
 // --- helpers ---------------------------------------------------------------
 
 const s = (button: string, targetFrame: number, tolEarly = 0, tolLate = 0, label?: string): Step => ({
-  button,
+  buttons: [button],
   targetFrame,
   tolEarly,
   tolLate,
@@ -505,13 +505,14 @@ describe('session stats', () => {
   it('counts a missed step as reached but not timed', () => {
     const st = tick(engineRun(twoStep, [p('LP', T0)]), T0 + f(60));
     const stats = recordAttempt(emptyStats(2), attemptResult(st)!);
-    expect(stats.steps[1]).toEqual({ reached: 1, onTime: 0, deltas: [] });
+    expect(stats.steps[1]).toEqual({ reached: 1, onTime: 0, counts: { ...emptyStepStats().counts, MISSED: 1 }, deltas: [] });
   });
 
   it('summarizes an unreached step as nulls', () => {
-    expect(summarizeStep({ reached: 0, onTime: 0, deltas: [] })).toEqual({
+    expect(summarizeStep(emptyStepStats())).toEqual({
       reached: 0,
       onTime: 0,
+      counts: emptyStepStats().counts,
       onTimeRate: null,
       meanDelta: null,
       spread: null,
@@ -598,7 +599,7 @@ describe('timeline', () => {
 describe('feedback text', () => {
   const r = (grade: StepResult['grade'], deltaFrames?: number, deltaMs?: number, pressed?: string): StepResult => ({
     stepIndex: 1,
-    expected: 'MP',
+    expected: ['MP'],
     grade,
     ...(deltaFrames !== undefined ? { deltaFrames } : {}),
     ...(deltaMs !== undefined ? { deltaMs } : {}),

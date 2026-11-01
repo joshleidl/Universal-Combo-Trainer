@@ -13,9 +13,20 @@ export interface PressEvent {
   source: InputSource;
 }
 
+/** Directions can't be part of a chord (yet). */
+export const DIRECTION_BUTTONS: readonly ButtonId[] = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
+
+export type ChordWindowUnit = 'frames' | 'ms';
+
+/** How far apart a chord's presses may be: grid frames (integer) or corrected ms. */
+export interface ChordWindow {
+  size: number;
+  unit: ChordWindowUnit;
+}
+
 export interface Step {
-  /** Required input. Kept as a single button for now; could become a chord list later (SPEC §9). */
-  button: ButtonId;
+  /** Required input(s). One button is a normal step; two or more is a chord (any order). */
+  buttons: ButtonId[];
   /** Integer frame the input should land on. */
   targetFrame: number;
   /** Frames early still counted as on time. */
@@ -23,6 +34,8 @@ export interface Step {
   /** Frames late still counted as on time. */
   tolLate: number;
   label?: string;
+  /** Required for chords (2+ buttons); ignored on single-button steps. */
+  chordWindow?: ChordWindow;
 }
 
 export type TimingMode = 'relative' | 'absolute';
@@ -46,14 +59,37 @@ export interface Settings {
   latencyOffsetMs: Record<InputSource, number>;
 }
 
-export type Grade = 'ON_TIME' | 'EARLY' | 'LATE' | 'WRONG_BUTTON' | 'MISSED';
+export type Grade = 'ON_TIME' | 'EARLY' | 'LATE' | 'SPLIT' | 'PARTIAL' | 'WRONG_BUTTON' | 'MISSED';
+
+/** Timing grade of a single press against a step's on-time window. */
+export type PressTiming = 'EARLY' | 'ON_TIME' | 'LATE';
+
+/** One press of a chord step, with its own timing. */
+export interface ChordPress {
+  press: PressEvent;
+  /** press.timestamp minus the latency offset for its source. */
+  correctedTimestamp: number;
+  /**
+   * Timing against the step's window, like the step-level fields. Absent when the step is a
+   * first-input start (its timing isn't checked) or there is no frame 0 yet.
+   */
+  inputFrame?: number;
+  deltaFrames?: number;
+  deltaMs?: number;
+  timing?: PressTiming;
+}
 
 export interface StepResult {
   stepIndex: number;
-  expected: ButtonId;
+  expected: ButtonId[];
   grade: Grade;
-  /** The press that produced this result. Absent for MISSED by timeout. */
+  /**
+   * The press that produced this result: for a chord, the last one (the one graded, or the
+   * wrong press). Absent for MISSED by timeout.
+   */
   press?: PressEvent;
+  /** Chord steps only: every press of the chord, in order (including a wrong one). */
+  presses?: ChordPress[];
   /** press.timestamp minus the latency offset for its source. */
   correctedTimestamp?: number;
   /** Corrected timestamp minus the reference timestamp. */
@@ -66,7 +102,7 @@ export interface StepResult {
 
 export type AttemptPhase = 'idle' | 'armed' | 'running' | 'done';
 
-export type AttemptEnd = 'completed' | 'missed' | 'wrongButton';
+export type AttemptEnd = 'completed' | 'missed' | 'wrongButton' | 'partial';
 
 export interface AttemptResult {
   combo: Combo;

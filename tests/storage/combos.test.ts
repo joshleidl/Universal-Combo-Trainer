@@ -23,8 +23,8 @@ const sample = (name = 'Mine'): Combo => ({
   timingMode: 'absolute',
   startMode: 'countdown',
   steps: [
-    { button: 'LP', targetFrame: 0, tolEarly: 0, tolLate: 0, label: 'jab' },
-    { button: 'HK', targetFrame: 20, tolEarly: 1, tolLate: 2 },
+    { buttons: ['LP'], targetFrame: 0, tolEarly: 0, tolLate: 0, label: 'jab' },
+    { buttons: ['HK'], targetFrame: 20, tolEarly: 1, tolLate: 2 },
   ],
 });
 
@@ -76,7 +76,7 @@ describe('create / get / list', () => {
   it('returns copies, so callers cannot change stored data by mutation', () => {
     const store = emptyStore();
     store.create(sample());
-    store.get('id-1')!.combo.steps[0]!.button = 'MP';
+    store.get('id-1')!.combo.steps[0]!.buttons = ['MP'];
     store.list()[0]!.combo.name = 'mutated';
     expect(store.get('id-1')!.combo).toEqual(sample());
   });
@@ -86,11 +86,11 @@ describe('create / get / list', () => {
     const messy = {
       ...sample('  padded  '),
       extra: 1,
-      steps: [{ button: 'LP', targetFrame: 0, tolEarly: 0, tolLate: 0, label: '  ', junk: true }],
+      steps: [{ buttons: ['LP'], targetFrame: 0, tolEarly: 0, tolLate: 0, label: '  ', junk: true }],
     } as unknown as Combo;
     expect(store.create(messy).combo).toEqual({
       ...sample('padded'),
-      steps: [{ button: 'LP', targetFrame: 0, tolEarly: 0, tolLate: 0 }],
+      steps: [{ buttons: ['LP'], targetFrame: 0, tolEarly: 0, tolLate: 0 }],
     });
   });
 
@@ -102,10 +102,10 @@ describe('create / get / list', () => {
     expect(() => store.create({ ...sample(), steps: [] })).toThrow(/at least one step/);
     expect(() => store.create({ ...sample(), fps: 0 })).toThrow(/fps/);
     expect(() =>
-      store.create({ ...sample(), steps: [{ button: 'LP', targetFrame: 1.5, tolEarly: 0, tolLate: 0 }] }),
+      store.create({ ...sample(), steps: [{ buttons: ['LP'], targetFrame: 1.5, tolEarly: 0, tolLate: 0 }] }),
     ).toThrow(/targetFrame/);
     expect(() =>
-      store.create({ ...sample(), steps: [{ button: 'LP', targetFrame: Number.NaN, tolEarly: 0, tolLate: 0 }] }),
+      store.create({ ...sample(), steps: [{ buttons: ['LP'], targetFrame: Number.NaN, tolEarly: 0, tolLate: 0 }] }),
     ).toThrow(/targetFrame/);
     expect(storage.dump()).toEqual(before);
   });
@@ -206,7 +206,7 @@ describe('damaged storage', () => {
         good,
         { id: 'bad-steps', combo: { ...sample(), steps: [] } },
         { id: 'bad-mode', combo: { ...sample(), timingMode: 'weird' } },
-        { id: 'bad-label', combo: { ...sample(), steps: [{ button: 'LP', targetFrame: 0, tolEarly: 0, tolLate: 0, label: 5 }] } },
+        { id: 'bad-label', combo: { ...sample(), steps: [{ buttons: ['LP'], targetFrame: 0, tolEarly: 0, tolLate: 0, label: 5 }] } },
         { combo: sample() },
         { id: 'ok', combo: sample('duplicate id') },
         'junk',

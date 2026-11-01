@@ -2,19 +2,24 @@
 // Rendering only. Combo edits come from combo/, saving from storage/, frame math from engine/.
 
 import {
+  addChordButton,
   addStep,
   cloneCombo,
   combosEqual,
+  convertChordWindow,
   moveStep,
   newCombo,
+  nextChordButton,
   onTimeWindow,
+  removeChordButton,
   removeStep,
+  setStepButton,
   updateStep,
   type StepPatch,
 } from '../combo/edit';
 import { SHARE_PREFIX, encodeCombo } from '../combo/share';
 import { validateCombo } from '../engine/attempt';
-import type { Combo, StartMode, Step, TimingMode } from '../engine/types';
+import { DIRECTION_BUTTONS, type ChordWindow, type ChordWindowUnit, type Combo, type StartMode, type Step, type TimingMode } from '../engine/types';
 import { BUTTON_IDS } from '../input/mapping';
 import { validateForSave, type ComboStore } from '../storage/combos';
 import { el } from './dom';
@@ -31,6 +36,15 @@ export interface EditorSession {
 }
 
 const FPS_PRESETS = [30, 60, 120];
+
+/** Buttons a chord can use: everything but directions (SPEC §3). */
+const CHORD_BUTTONS = BUTTON_IDS.filter((b) => !DIRECTION_BUTTONS.includes(b));
+
+/** Short warning shown next to the chord window, per unit. The diagram explains both. */
+const CHORD_WARNINGS: Record<ChordWindowUnit, string> = {
+  frames: '⚠ Frame edges',
+  ms: '⚠ Games count frames',
+};
 
 const TIMING_HINTS: Record<TimingMode, string> = {
   relative: 'Relative: each step’s target frame counts from the frame the previous input landed on.',
@@ -116,6 +130,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
 
   // --- step rows ----------------------------------------------------------
   interface StepRow {
+    addButtonBtn: HTMLButtonElement;
     targetInput: HTMLInputElement;
     earlyInput: HTMLInputElement;
     lateInput: HTMLInputElement;
@@ -142,14 +157,55 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
 
   function buildStepRow(step: Step, index: number): HTMLLIElement {
     const n = index + 1;
-    const buttonSelect = el(
-      'select',
-      { ariaLabel: `Step ${n} button` },
-      // Keep an unknown button (e.g. from hand-edited data) selectable rather than silently changing it.
-      [...new Set([...BUTTON_IDS, step.button])].map((b) =>
-        el('option', { value: b, textContent: b, selected: b === step.button }),
-      ),
-    );
+    const chord = step.buttons.length > 1;
+
+    // One select per button; a chord has two or more, each with a ✕ to remove it.
+    const buttonSelects = step.buttons.map((current, slot) => {
+      const choices = chord ? CHORD_BUTTONS : BUTTON_IDS;
+      const select = el(
+        'select',
+        { ariaLabel: chord ? `Step ${n} button ${slot + 1}` : `Step ${n} button` },
+        // Keep an unknown button (e.g. from hand-edited data) selectable rather than silently changing it.
+        [...new Set<string>([...choices, current])].map((b) =>
+          el('option', { value: b, textContent: b, selected: b === current }),
+        ),
+      );
+      select.addEventListener('change', () => {
+        setDraft(setStepButton(session.draft, index, slot, select.value));
+        refresh();
+      });
+      if (!chord) return select;
+      const remove = el('button', {
+        type: 'button',
+        className: 'chord-remove',
+        textContent: '✕',
+        title: `Remove ${current} from the chord`,
+        ariaLabel: `Remove button ${slot + 1} from step ${n}`,
+      });
+      remove.addEventListener('click', () => {
+        setDraft(removeChordButton(session.draft, index, slot));
+        rebuildSteps();
+        rows[index]?.addButtonBtn.focus();
+      });
+      return el('span', { className: 'chord-button' }, [select, remove]);
+    });
+    const addButtonBtn = el('button', {
+      type: 'button',
+      className: 'chord-add',
+      textContent: '+',
+      ariaLabel: `Add a button to step ${n} (chord)`,
+    });
+    addButtonBtn.addEventListener('click', () => {
+      const current = session.draft.steps[index];
+      const extra = current && nextChordButton(current, CHORD_BUTTONS);
+      if (!extra) return;
+      setDraft(addChordButton(session.draft, index, extra));
+      rebuildSteps();
+      rows[index]?.addButtonBtn.focus();
+    });
+
+    const chordFields = chord ? buildChordWindowField(step, index, n) : [];
+
     const targetInput = numberInput(step.targetFrame, `Step ${n} target frame`);
     const earlyInput = numberInput(step.tolEarly, `Step ${n} early tolerance`);
     const lateInput = numberInput(step.tolLate, `Step ${n} late tolerance`);
@@ -169,7 +225,6 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       setDraft(updateStep(session.draft, index, p));
       refresh();
     };
-    buttonSelect.addEventListener('change', () => patch({ button: buttonSelect.value }));
     targetInput.addEventListener('input', () => patch({ targetFrame: targetInput.valueAsNumber }));
     earlyInput.addEventListener('input', () => patch({ tolEarly: earlyInput.valueAsNumber }));
     lateInput.addEventListener('input', () => patch({ tolLate: lateInput.valueAsNumber }));
@@ -184,11 +239,18 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     });
     removeBtn.classList.add('step-remove');
 
-    rows.push({ targetInput, earlyInput, lateInput, windowText, upBtn, downBtn });
+    rows.push({ addButtonBtn, targetInput, earlyInput, lateInput, windowText, upBtn, downBtn });
 
-    return el('li', { className: 'step' }, [
+    return el('li', { className: chord ? 'step chord' : 'step' }, [
       el('span', { className: 'step-num', textContent: String(n) }),
-      el('label', { className: 'field' }, [el('span', { textContent: 'Button' }), buttonSelect]),
+      el('div', { className: 'field' }, [
+        el('span', { textContent: chord ? 'Chord (any order)' : 'Button' }),
+        el('span', { className: 'step-buttons' }, [
+          ...buttonSelects.flatMap((b, k) => (k > 0 ? [el('span', { className: 'chord-plus', textContent: '+' }), b] : [b])),
+          addButtonBtn,
+        ]),
+      ]),
+      ...chordFields,
       el('label', { className: 'field' }, [el('span', { textContent: 'Target frame' }), targetInput]),
       el('label', { className: 'field' }, [el('span', { textContent: 'Early tol.' }), earlyInput]),
       el('label', { className: 'field' }, [el('span', { textContent: 'Late tol.' }), lateInput]),
@@ -196,6 +258,74 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       el('div', { className: 'step-actions' }, [upBtn, downBtn, removeBtn]),
       windowText,
     ]);
+  }
+
+  /** The chord window field: size, unit, and the frame-edge warning with its diagram. */
+  function buildChordWindowField(step: Step, index: number, n: number): HTMLElement[] {
+    const win: ChordWindow = step.chordWindow ?? { size: 0, unit: 'frames' };
+    const sizeInput = el('input', {
+      type: 'number',
+      min: '0',
+      step: win.unit === 'frames' ? '1' : 'any',
+      inputMode: win.unit === 'frames' ? 'numeric' : 'decimal',
+      className: 'num-input',
+      value: Number.isFinite(win.size) ? String(win.size) : '',
+      ariaLabel: `Step ${n} chord window`,
+    });
+    const unitSelect = el('select', { ariaLabel: `Step ${n} chord window unit` }, [
+      el('option', { value: 'frames', textContent: 'frames', selected: win.unit === 'frames' }),
+      el('option', { value: 'ms', textContent: 'ms', selected: win.unit === 'ms' }),
+    ]);
+    const tipId = `chord-tip-${n}`;
+    const warn = el('button', {
+      type: 'button',
+      className: 'chord-warn',
+      textContent: CHORD_WARNINGS[win.unit],
+      ariaLabel: `About chord windows in ${win.unit}`,
+    });
+    warn.setAttribute('aria-expanded', 'false');
+    warn.setAttribute('aria-controls', tipId);
+    const tip = chordWindowTip(win.unit, tipId);
+
+    // The diagram shows on hover, on keyboard focus, and on tap (click toggles it).
+    let pinned = false;
+    const show = (on: boolean) => {
+      tip.hidden = !on;
+      warn.setAttribute('aria-expanded', String(on));
+    };
+    warn.addEventListener('mouseenter', () => show(true));
+    warn.addEventListener('mouseleave', () => show(pinned));
+    warn.addEventListener('focus', () => show(true));
+    warn.addEventListener('blur', () => {
+      pinned = false;
+      show(false);
+    });
+    warn.addEventListener('click', () => {
+      pinned = !pinned;
+      show(pinned);
+    });
+
+    sizeInput.addEventListener('input', () => {
+      const current = session.draft.steps[index]?.chordWindow ?? win;
+      setDraft(updateStep(session.draft, index, { chordWindow: { ...current, size: sizeInput.valueAsNumber } }));
+      refresh();
+    });
+    unitSelect.addEventListener('change', () => {
+      const current = session.draft.steps[index]?.chordWindow ?? win;
+      const unit = unitSelect.value as ChordWindowUnit;
+      setDraft(updateStep(session.draft, index, { chordWindow: convertChordWindow(current, unit, session.draft.fps) }));
+      // Rebuild so the size input's step and the warning match the new unit.
+      rebuildSteps();
+      stepList.querySelectorAll<HTMLSelectElement>(`select[aria-label="Step ${n} chord window unit"]`)[0]?.focus();
+    });
+
+    return [
+      el('div', { className: 'field' }, [
+        el('span', { textContent: 'Chord window' }),
+        el('span', { className: 'chord-window' }, [sizeInput, unitSelect, warn]),
+      ]),
+      tip,
+    ];
   }
 
   function move(from: number, to: number, dir: 'up' | 'down') {
@@ -243,6 +373,15 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       if (!step) return;
       const startsAttempt = i === 0 && firstInputStart;
       for (const input of [row.targetInput, row.earlyInput, row.lateInput]) input.disabled = startsAttempt;
+      const lone = step.buttons.length === 1 ? step.buttons[0] : undefined;
+      const isDirection = lone !== undefined && DIRECTION_BUTTONS.includes(lone);
+      const free = nextChordButton(step, CHORD_BUTTONS) !== null;
+      row.addButtonBtn.disabled = isDirection || !free;
+      row.addButtonBtn.title = isDirection
+        ? 'Directions can’t be part of a chord'
+        : free
+          ? 'Add a button pressed together with this one (a chord)'
+          : 'Every button is already in this chord';
       row.upBtn.disabled = i === 0;
       row.downBtn.disabled = i === d.steps.length - 1;
       row.windowText.textContent = startsAttempt
@@ -433,10 +572,75 @@ function windowDescription(step: Step, fps: number, fpsOk: boolean, from: string
   if (!ints || !fpsOk) return '';
   const w = onTimeWindow(step, fps);
   const frames = w.firstFrame === w.lastFrame ? `frame ${w.firstFrame}` : `frames ${w.firstFrame} to ${w.lastFrame}`;
-  return `On time: ${frames}, ${w.startMs.toFixed(1)} to ${w.endMs.toFixed(1)} ms ${from}.`;
+  const timing = `On time: ${frames}, ${w.startMs.toFixed(1)} to ${w.endMs.toFixed(1)} ms ${from}.`;
+  const chord = step.buttons.length > 1 ? chordDescription(step) : '';
+  return chord ? `${chord} ${timing}` : timing;
+}
+
+/** "LP+MP within 2 frames of the first press; graded on the last press." */
+function chordDescription(step: Step): string {
+  const win = step.chordWindow;
+  if (!win || !Number.isFinite(win.size) || win.size < 0) return '';
+  const size =
+    win.unit === 'frames'
+      ? win.size === 0
+        ? 'on the same frame'
+        : `within ${win.size} frame${win.size === 1 ? '' : 's'} of the first press`
+      : `within ${win.size} ms of the first press`;
+  return `Press ${step.buttons.join('+')} ${size}; timing is graded on the last press.`;
+}
+
+/**
+ * The frame-edge explainer for the chord window: a small diagram of two chords, one whose
+ * presses are far apart inside one frame and one whose presses are close but straddle an edge.
+ */
+function chordWindowTip(unit: ChordWindowUnit, id: string): HTMLElement {
+  const tip = el('div', { className: 'chord-tip', id, hidden: true });
+  tip.setAttribute('role', 'note');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 320 116');
+  svg.setAttribute('class', 'chord-diagram');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute(
+    'aria-label',
+    'Two chords on a frame grid. A: presses 14 ms apart inside one frame count as 0 frames apart. B: presses 2 ms apart on either side of a frame edge count as 1 frame apart.',
+  );
+  // Static markup: frames 9–11 at 60 fps, 96 px per frame (16.7 ms).
+  svg.innerHTML = `
+    <rect class="cd-frame" x="20" y="8" width="96" height="84" />
+    <rect class="cd-frame alt" x="116" y="8" width="96" height="84" />
+    <rect class="cd-frame" x="212" y="8" width="96" height="84" />
+    <line class="cd-edge" x1="212" y1="2" x2="212" y2="98" />
+    <text class="cd-label" x="68" y="108" text-anchor="middle">frame 9</text>
+    <text class="cd-label" x="164" y="108" text-anchor="middle">frame 10</text>
+    <text class="cd-label" x="260" y="108" text-anchor="middle">frame 11</text>
+    <text class="cd-row" x="8" y="34" text-anchor="middle">A</text>
+    <circle class="cd-press" cx="122" cy="30" r="5" />
+    <circle class="cd-press" cx="202" cy="30" r="5" />
+    <line class="cd-gap" x1="122" y1="42" x2="202" y2="42" />
+    <text class="cd-note" x="154" y="56" text-anchor="middle">14 ms · 0 frames</text>
+    <text class="cd-row" x="8" y="76" text-anchor="middle">B</text>
+    <circle class="cd-press" cx="206" cy="72" r="5" />
+    <circle class="cd-press" cx="218" cy="72" r="5" />
+    <text class="cd-note" x="258" y="88" text-anchor="middle">2 ms · 1 frame</text>
+  `;
+  const framesText =
+    'In frames, presses are counted the way a game counts them: on a fixed frame grid. That makes a frame window sensitive to where the edges fall. Chord A is 14 ms apart but inside one frame, so it is 0 frames apart. Chord B is only 2 ms apart, but it crosses an edge, so it is 1 frame apart and fails a 0-frame window.';
+  const msText =
+    'In ms, the gap is measured directly, so A is 14 ms apart and B is 2 ms apart, wherever the frame edges fall. But games don’t count in ms: a game that reads buttons once per frame sees B on two different frames. An ms window can accept a chord your game would split, or reject one it would accept.';
+  const edgeText =
+    'The trainer’s frame edges are not your game’s: it can’t see where your game’s frames start, so near an edge the result can differ from the game by a frame.';
+  tip.append(
+    svg,
+    el('p', { textContent: unit === 'frames' ? framesText : msText }),
+    el('p', { textContent: unit === 'frames' ? msText : framesText }),
+    el('p', { textContent: edgeText }),
+  );
+  return tip;
 }
 
 const FIELD_NAMES: Record<string, string> = {
+  chordWindow: 'chord window',
   targetFrame: 'target frame',
   tolEarly: 'early tolerance',
   tolLate: 'late tolerance',
@@ -445,6 +649,6 @@ const FIELD_NAMES: Record<string, string> = {
 
 /** Turns an engine validation message into plain wording for the page. */
 function friendlyError(message: string): string {
-  const text = message.replace(/\b(targetFrame|tolEarly|tolLate|fps)\b/g, (m) => FIELD_NAMES[m] ?? m);
+  const text = message.replace(/\b(chordWindow|targetFrame|tolEarly|tolLate|fps)\b/g, (m) => FIELD_NAMES[m] ?? m);
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

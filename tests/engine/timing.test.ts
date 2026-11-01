@@ -11,7 +11,7 @@ import {
 import type { Step } from '../../src/engine/types';
 
 const step = (targetFrame: number, tolEarly = 0, tolLate = 0): Step => ({
-  button: 'LP',
+  buttons: ['LP'],
   targetFrame,
   tolEarly,
   tolLate,

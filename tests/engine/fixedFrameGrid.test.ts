@@ -14,7 +14,7 @@ const BUTTONS = ['LP', 'MP', 'HP', 'LK'];
 /** A relative combo at 60 FPS. Step 1 is the start; each later step has a gap of 3 frames, tolerance 0/0. */
 function combo(stepCount: number, startMode: StartMode = 'firstInput'): Combo {
   const steps: Step[] = BUTTONS.slice(0, stepCount).map((button, i) => ({
-    button,
+    buttons: [button],
     targetFrame: i === 0 ? 0 : 3,
     tolEarly: 0,
     tolLate: 0,
@@ -27,7 +27,7 @@ function run(c: Combo, times: number[], frame0?: number) {
   let st = arm(createAttempt(c, DEFAULT_SETTINGS));
   if (frame0 !== undefined) st = start(st, frame0);
   times.forEach((t, i) => {
-    st = press(st, { button: c.steps[i]!.button, timestamp: t, source: 'keyboard' });
+    st = press(st, { button: c.steps[i]!.buttons[0]!, timestamp: t, source: 'keyboard' });
   });
   const result = attemptResult(st);
   if (!result) throw new Error('attempt did not finish');

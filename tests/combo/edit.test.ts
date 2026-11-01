@@ -16,7 +16,7 @@ import { validateCombo } from '../../src/engine/attempt';
 import type { Combo, Step } from '../../src/engine/types';
 
 const s = (button: string, targetFrame: number, extra: Partial<Step> = {}): Step => ({
-  button,
+  buttons: [button],
   targetFrame,
   tolEarly: 0,
   tolLate: 0,
@@ -66,7 +66,7 @@ describe('nextStep / addStep', () => {
 describe('removeStep', () => {
   it('removes by index', () => {
     const c = combo([s('LP', 0), s('MP', 1), s('HP', 2)]);
-    expect(removeStep(c, 1).steps.map((x) => x.button)).toEqual(['LP', 'HP']);
+    expect(removeStep(c, 1).steps.map((x) => x.buttons[0])).toEqual(['LP', 'HP']);
     expect(c.steps).toHaveLength(3);
   });
 
@@ -83,7 +83,7 @@ describe('removeStep', () => {
 
 describe('moveStep', () => {
   const c = combo([s('A', 0), s('B', 1), s('C', 2)]);
-  const order = (x: Combo) => x.steps.map((st) => st.button).join('');
+  const order = (x: Combo) => x.steps.map((st) => st.buttons[0]).join('');
 
   it('moves up and down', () => {
     expect(order(moveStep(c, 2, 1))).toBe('ACB');
@@ -102,7 +102,7 @@ describe('moveStep', () => {
 describe('updateStep', () => {
   it('patches fields of one step', () => {
     const c = combo([s('LP', 0), s('MP', 5)]);
-    const next = updateStep(c, 1, { button: 'HK', tolLate: 2 });
+    const next = updateStep(c, 1, { buttons: ['HK'], tolLate: 2 });
     expect(next.steps[1]).toEqual(s('HK', 5, { tolLate: 2 }));
     expect(next.steps[0]).toBe(c.steps[0]);
     expect(c.steps[1]).toEqual(s('MP', 5));
@@ -123,7 +123,7 @@ describe('updateStep', () => {
 
   it('ignores out-of-range indexes', () => {
     const c = combo([s('LP', 0)]);
-    expect(updateStep(c, 4, { button: 'HP' })).toBe(c);
+    expect(updateStep(c, 4, { buttons: ['HP'] })).toBe(c);
   });
 });
 
@@ -137,7 +137,7 @@ describe('combosEqual / cloneCombo', () => {
 
   it('ignores key order and a missing vs empty label', () => {
     const a: Combo = { name: 'x', fps: 60, timingMode: 'relative', startMode: 'firstInput', steps: [s('LP', 0)] };
-    const b: Combo = { startMode: 'firstInput', steps: [{ tolLate: 0, tolEarly: 0, targetFrame: 0, button: 'LP' }], timingMode: 'relative', fps: 60, name: 'x' };
+    const b: Combo = { startMode: 'firstInput', steps: [{ tolLate: 0, tolEarly: 0, targetFrame: 0, buttons: ['LP'] }], timingMode: 'relative', fps: 60, name: 'x' };
     expect(combosEqual(a, b)).toBe(true);
   });
 
@@ -154,9 +154,10 @@ describe('combosEqual / cloneCombo', () => {
 });
 
 describe('EXAMPLE_COMBOS', () => {
-  it('ships 2–3 valid examples with unique ids', () => {
-    expect(EXAMPLE_COMBOS.length).toBeGreaterThanOrEqual(2);
-    expect(EXAMPLE_COMBOS.length).toBeLessThanOrEqual(3);
+  it('ships 3–4 valid examples (one with a chord) with unique ids', () => {
+    expect(EXAMPLE_COMBOS.length).toBeGreaterThanOrEqual(3);
+    expect(EXAMPLE_COMBOS.length).toBeLessThanOrEqual(4);
+    expect(EXAMPLE_COMBOS.some((e) => e.combo.steps.some((st) => st.buttons.length > 1))).toBe(true);
     expect(new Set(EXAMPLE_COMBOS.map((e) => e.id)).size).toBe(EXAMPLE_COMBOS.length);
     for (const e of EXAMPLE_COMBOS) expect(validateCombo(e.combo)).toEqual([]);
   });

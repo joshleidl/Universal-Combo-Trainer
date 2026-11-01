@@ -2,7 +2,7 @@
 // last attempt, and session stats. Rendering only: grading comes from engine/, the attempt
 // flow and stats from practice/, and press events from input/.
 
-import { validateCombo, currentStepIndex, attemptResult, type AttemptState } from '../engine/attempt';
+import { validateCombo, chordProgress, currentStepIndex, attemptResult, type AttemptState } from '../engine/attempt';
 import { DEFAULT_SETTINGS, frameMs } from '../engine/timing';
 import type { Combo, Grade, Settings } from '../engine/types';
 import { cloneCombo, combosEqual } from '../combo/edit';
@@ -22,6 +22,7 @@ import {
 } from '../input';
 import {
   buildTimeline,
+  buttonsName,
   countdownBeatTimes,
   countdownGoAt,
   countdownShown,
@@ -38,6 +39,7 @@ import {
   practiceWithSettings,
   resetStats,
   rulerStep,
+  emptyStepStats,
   shownAttempt,
   summarizeStep,
   waitingToStart,
@@ -89,6 +91,8 @@ const GRADE_CLASS: Record<Grade, string> = {
   ON_TIME: 'on-time',
   EARLY: 'early',
   LATE: 'late',
+  SPLIT: 'split',
+  PARTIAL: 'partial',
   WRONG_BUTTON: 'wrong',
   MISSED: 'missed',
 };
@@ -199,7 +203,7 @@ export function renderPracticePage(
       el('div', { className: 'table-wrap' }, [
         el('table', {}, [
           el('thead', {}, [
-            el('tr', {}, ['Step', 'On time', 'Avg Δ', 'Spread'].map((h) => el('th', { textContent: h }))),
+            el('tr', {}, ['Step', 'On time', 'Other results', 'Avg Δ', 'Spread'].map((h) => el('th', { textContent: h }))),
           ]),
           statsBody,
         ]),
@@ -232,7 +236,7 @@ export function renderPracticePage(
     let cls = '';
     const names = restartNames.join(' / ');
     const firstStep = combo.steps[0];
-    const goTarget = firstStep ? `${stepName(firstStep.button, firstStep.label)} on frame ${firstStep.targetFrame} after Go` : '';
+    const goTarget = firstStep ? `${stepName(firstStep.buttons, firstStep.label)} on frame ${firstStep.targetFrame} after Go` : '';
     if (a.phase === 'done') {
       const result = attemptResult(a);
       const skip = !isCountdown && names ? `; ${names} skips it` : '';
@@ -244,9 +248,9 @@ export function renderPracticePage(
     } else if (waitingToStart(state)) {
       text = `Press any button${names ? ` or ${names}` : ''} to start the countdown, then press ${goTarget}.`;
     } else if (a.phase === 'armed' && nextStep) {
-      text = `Ready. Press ${stepName(nextStep.button, nextStep.label)} to start.`;
+      text = `Ready. Press ${stepName(nextStep.buttons, nextStep.label)} to start.`;
     } else if (nextStep) {
-      text = `Next: ${stepName(nextStep.button, nextStep.label)}`;
+      text = `Next: ${stepName(nextStep.buttons, nextStep.label)}`;
     } else {
       text = '';
     }
@@ -257,6 +261,9 @@ export function renderPracticePage(
   function renderSteps() {
     const shown = shownAttempt(state);
     const awaiting = shown === state.attempt ? currentStepIndex(state.attempt) : null;
+    // Buttons of the awaited chord pressed so far, so a half-pressed chord shows which half.
+    const held = chordProgress(state.attempt) ?? [];
+    const heldStep = currentStepIndex(state.attempt);
     stepRow.replaceChildren(
       ...combo.steps.map((step, i) => {
         const r = shown.results.find((x) => x.stepIndex === i);
@@ -266,7 +273,14 @@ export function renderPracticePage(
         if (i === awaiting) classes.push('awaiting');
         const target = isStart ? 'start' : `${step.targetFrame}f${tolText(step.tolEarly, step.tolLate)}`;
         return el('li', { className: classes.join(' ') }, [
-          el('span', { className: 'ps-button', textContent: step.button }),
+          el(
+            'span',
+            { className: 'ps-button' },
+            step.buttons.flatMap((b, k) => [
+              ...(k > 0 ? ['+'] : []),
+              el('span', { className: i === heldStep && held.includes(b) ? 'held' : '', textContent: b }),
+            ]),
+          ),
           el('span', { className: 'ps-label', textContent: step.label ?? '' }),
           el('span', { className: 'ps-target', textContent: target }),
           el('span', { className: 'ps-result', textContent: r ? describeStep(r, isStart) : '' }),
@@ -286,8 +300,11 @@ export function renderPracticePage(
     }
     const pct = (frame: number) => `${(frame / tl.endFrame) * 100}%`;
     const lanes = tl.steps.map((s) => {
-      const lane = el('div', { className: `tl-lane ${GRADE_CLASS[s.grade]}` }, [
-        el('span', { className: 'tl-name', textContent: s.label ? `${s.expected} · ${s.label}` : s.expected }),
+      const lane = el('div', { className: `tl-lane ${GRADE_CLASS[s.grade]}${s.chordPresses ? ' chord' : ''}` }, [
+        el('span', {
+          className: 'tl-name',
+          textContent: s.label ? `${buttonsName(s.expected)} · ${s.label}` : buttonsName(s.expected),
+        }),
       ]);
       const track = el('div', { className: 'tl-track' });
       if (!s.isStart) {
@@ -304,10 +321,32 @@ export function renderPracticePage(
         dl.style.left = pct(s.deadline);
         track.append(dl);
       }
-      if (s.input !== null) {
+      if (s.chordWindow) {
+        // Shaded from the chord's first press to the end of its window.
+        const cw = el('div', { className: 'tl-chord-window', title: 'Chord window' });
+        cw.style.left = pct(s.chordWindow.start);
+        cw.style.width = pct(s.chordWindow.end - s.chordWindow.start);
+        track.append(cw);
+      }
+      if (s.chordPresses) {
+        // One dot per chord press, each tagged with its button; a wrong press is flagged.
+        s.chordPresses.forEach((m, k) => {
+          const mark = el('div', {
+            className: m.wrong ? 'tl-input wrong-press' : 'tl-input',
+            title: `${m.wrong ? 'Wrong press' : 'Pressed'} ${m.button}`,
+          });
+          mark.style.left = pct(m.frame);
+          const tag = el('span', {
+            className: `tl-tag ${k % 2 ? 'below' : ''} ${m.wrong ? 'wrong-press' : ''}`.trim(),
+            textContent: m.button,
+          });
+          tag.style.left = pct(m.frame);
+          track.append(mark, tag);
+        });
+      } else if (s.input !== null) {
         const mark = el('div', {
           className: 'tl-input',
-          title: s.pressed ? `Pressed ${s.pressed}` : `Pressed ${s.expected}`,
+          title: s.pressed ? `Pressed ${s.pressed}` : `Pressed ${buttonsName(s.expected)}`,
         });
         mark.style.left = pct(s.input);
         track.append(mark);
@@ -362,13 +401,14 @@ export function renderPracticePage(
         : `${st.attempts} attempt${st.attempts === 1 ? '' : 's'} · ${st.successes} clean (${fmt((st.successes / st.attempts) * 100, 0)}%) · streak ${st.streak} · best ${st.bestStreak}`;
     statsBody.replaceChildren(
       ...combo.steps.map((step, i) => {
-        const sum = summarizeStep(st.steps[i] ?? { reached: 0, onTime: 0, deltas: [] });
+        const sum = summarizeStep(st.steps[i] ?? emptyStepStats());
         const isStart = combo.startMode === 'firstInput' && i === 0;
         const rate =
           sum.onTimeRate === null ? '—' : `${sum.onTime}/${sum.reached} (${fmt(sum.onTimeRate * 100, 0)}%)`;
         return el('tr', {}, [
-          el('td', { textContent: `${i + 1}. ${stepName(step.button, step.label)}` }),
+          el('td', { textContent: `${i + 1}. ${stepName(step.buttons, step.label)}` }),
           el('td', { className: 'num', textContent: isStart ? (sum.reached ? `started ${sum.reached}×` : '—') : rate }),
+          el('td', { textContent: otherResults(sum.counts) }),
           el('td', { className: 'num', textContent: isStart || sum.meanDelta === null ? '—' : `${sum.meanDelta > 0 ? '+' : ''}${fmt(sum.meanDelta, 2)}f` }),
           el('td', { className: 'num', textContent: isStart || sum.spread === null ? '—' : `${fmt(sum.spread, 2)}f` }),
         ]);
@@ -589,8 +629,23 @@ export function renderPracticePage(
   };
 }
 
-function stepName(button: string, label?: string): string {
-  return label ? `${button} (${label})` : button;
+function stepName(buttons: readonly string[], label?: string): string {
+  const name = buttonsName(buttons);
+  return label ? `${name} (${label})` : name;
+}
+
+/** Results other than on time, e.g. "2 early · 1 split". */
+const OTHER_GRADES: readonly [Grade, string][] = [
+  ['EARLY', 'early'],
+  ['LATE', 'late'],
+  ['SPLIT', 'split'],
+  ['PARTIAL', 'partial'],
+  ['WRONG_BUTTON', 'wrong'],
+  ['MISSED', 'missed'],
+];
+function otherResults(counts: Readonly<Record<Grade, number>>): string {
+  const parts = OTHER_GRADES.filter(([g]) => counts[g] > 0).map(([g, name]) => `${counts[g]} ${name}`);
+  return parts.length > 0 ? parts.join(' · ') : '—';
 }
 
 function tolText(early: number, late: number): string {

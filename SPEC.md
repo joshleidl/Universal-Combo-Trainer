@@ -24,7 +24,8 @@ The tool is game-agnostic. It does not read or hook into any game; it only measu
 
 ### Combo definition
 A **combo** is an ordered list of **steps**. Each step has:
-- `button`: the input to press (a mapped button ID, e.g. `LP`, `HK`, `UP`)
+- `buttons`: the input(s) to press (mapped button IDs, e.g. `LP`, `HK`, `UP`). One button is a normal step. Two or more is a **chord**: all of them must be pressed within the chord window, in any order. Directions can't be part of a chord (yet).
+- `chordWindow` (chords only, required for them): how far apart a chord's presses may be, as `{ size, unit }`. `unit` is `frames` (grid frames, the same grid grading uses; `size` is an integer ≥ 0) or `ms` (corrected timestamps; `size` is a number ≥ 0). Default for a new chord in the editor: 2 frames.
 - `targetFrame`: integer frame the input should land on
 - `tolEarly`: frames early still counted as on time (default 0)
 - `tolLate`: frames late still counted as on time (default 0)
@@ -51,10 +52,26 @@ Combo-level settings:
    - `MISSED` if no input arrives within `targetFrame + tolLate + timeoutFrames` (default timeout 30 frames)
 5. Always report `deltaFrames` and raw `deltaMs` (relative to the start of the target frame) so feedback can show "2f late (+31.4 ms)".
 
+### Chords
+A single-button step is graded exactly as above. A chord step (2+ buttons) works like this:
+1. **Collecting.** The chord starts with the first press of one of its buttons. While it is collecting, the `MISSED` timer is paused (it is counted from the chord's first press: a chord whose first press arrives in time can't become `MISSED`). The first press is still subject to the `MISSED` rule: a first press past the step's deadline is `MISSED`.
+2. **Window.** Every chord button must be pressed within `chordWindow` of the first press: in `frames`, the last press's grid frame − the first press's grid frame ≤ `size`; in `ms`, last corrected timestamp − first corrected timestamp ≤ `size`.
+3. **Complete.** When the last missing button is pressed inside the window, the chord is complete. It stays open until the end of the grid frame it completed on, so a press on that same frame counts as an extra press (a game reading buttons once per frame sees them together). Then it is graded. Its result appears at most one frame after it completes.
+4. **Graded press = the last press** (the one that completed the chord). `inputFrame`, `deltaFrames`, `deltaMs` and `elapsedMs` are that press's. The next relative step counts from the frame it landed on.
+5. **Each press also gets its own timing** (`EARLY` / `ON_TIME` / `LATE` against the step's window), reported per press. Result:
+   - `SPLIT` if the presses don't all get the same grade (any mix of early, on time and late).
+   - Otherwise that grade (`ON_TIME`, `EARLY` or `LATE`).
+6. **Mistakes** (exact match):
+   - `WRONG_BUTTON` if a button that isn't in the chord is pressed while the chord is awaited, or one of its buttons is pressed twice, or any press lands on the frame the chord completed on.
+   - `PARTIAL` if the window runs out with only some of the chord's buttons pressed. It is known once the window runs out, even if no other press arrives.
+   - Strict mode applies to both: strict ends the attempt; non-strict logs every press of the broken chord as ignored, resets the chord, and the step keeps waiting.
+7. **First-input start with a chord as step 1:** the chord's first press is frame 0. Timing isn't checked (button correctness only, as for any start step). The next relative step counts from the frame the chord completed on.
+
 ### Input rules
 - Only the **press edge** counts (button goes from up to down). Holds and key auto-repeat are ignored.
 - **Strict mode** (default on): a wrong button ends the attempt with `WRONG_BUTTON`. With strict mode off, wrong presses are logged but ignored, and the step keeps waiting.
-- An attempt ends when all steps are graded, on `MISSED`, or on a strict-mode `WRONG_BUTTON`.
+- An attempt ends when all steps are graded, on `MISSED`, or on a strict-mode `WRONG_BUTTON` or `PARTIAL`.
+- A chord's presses are ordinary press edges; the input layer doesn't change. Known limits: some keyboards can't register certain 3+ key combinations (rollover / ghosting), and pad buttons seen in the same poll share one timestamp.
 
 ## 4. Architecture
 
@@ -64,6 +81,7 @@ src/
     types.ts       Combo, Step, Settings, StepResult, AttemptResult
     timing.ts      frame/ms conversion, grading function
     attempt.ts     attempt state machine: idle → armed → running → done
+    chord.ts       chord helpers: window checks, per-press timing, split rule
   input/         # converts keyboard + gamepad into timestamped press events
     types.ts       InputPress / InputRelease event shapes
     keyboard.ts
@@ -165,9 +183,9 @@ Findings so far:
 
 ## 7. Feedback and UI
 
-- **Practice view:** shows the combo as a row of steps. Each step lights up as it is graded, colored by result (on time / early / late / wrong / missed) with "±Nf (±X ms)".
+- **Practice view:** shows the combo as a row of steps. Each step lights up as it is graded, colored by result (on time / early / late / split / partial / wrong / missed) with "±Nf (±X ms)".
 - **Timeline view:** a horizontal frame ruler showing target windows vs actual inputs for the last attempt.
-- **Session stats:** per-step on-time rate, average and spread of `deltaFrames`, and a running streak. Reset per session.
+- **Session stats:** per-step on-time rate, a count of each other result (early, late, split, partial, wrong, missed), average and spread of `deltaFrames`, and a running streak. Reset per session.
 - **Optional audio:** a metronome tick on target frames and distinct sounds for on-time vs miss. Off by default.
 - Quick restart key (e.g. Space or a gamepad button) to re-arm immediately.
 - Must be usable at phone width, though desktop with keyboard/controller is the primary target.
@@ -208,7 +226,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
   - **Part B:** latency calibration, mobile layout pass, deploy config, optional share-by-URL.
 
 ## 9. Out of scope (for now)
-- Motion inputs (quarter-circles, charge inputs) and simultaneous multi-button presses. Design types so these can be added later (e.g. a step could become a list of required inputs within a chord window).
+- Motion inputs (quarter-circles, charge inputs), negative edge (a release as an input), and directions in chords. Button chords are supported (§3, "Chords").
 - Reading game memory or game frame data.
 - Accounts, online leaderboards, any backend.
 

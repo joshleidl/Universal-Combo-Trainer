@@ -1,6 +1,6 @@
 // Feedback text for results (SPEC §7), e.g. "2f late (+31.4 ms)". Pure string formatting.
 
-import type { AttemptResult, StepResult } from '../engine/types';
+import type { AttemptResult, ButtonId, ChordPress, StepResult } from '../engine/types';
 
 const MINUS = '−';
 
@@ -17,6 +17,26 @@ export function signedFrames(frames: number): string {
   return `${frames < 0 ? MINUS : '+'}${Math.abs(frames)}f`;
 }
 
+/** "LP+MP": a step's buttons as one name. */
+export function buttonsName(buttons: readonly ButtonId[]): string {
+  return buttons.join('+');
+}
+
+/** How one chord press landed: "3f early", "on time", "on time (+1f)", "2f late". */
+function pressTimingText(p: ChordPress): string {
+  const d = p.deltaFrames ?? 0;
+  switch (p.timing) {
+    case 'EARLY':
+      return `${Math.abs(d)}f early`;
+    case 'LATE':
+      return `${d}f late`;
+    case 'ON_TIME':
+      return d === 0 ? 'on time' : `on time (${signedFrames(d)})`;
+    default:
+      return '';
+  }
+}
+
 /** One-line feedback for a graded step. `isStart` marks a first-input start step. */
 export function describeStep(r: StepResult, isStart: boolean): string {
   const ms = r.deltaMs !== undefined ? ` (${signedMs(r.deltaMs)})` : '';
@@ -30,8 +50,19 @@ export function describeStep(r: StepResult, isStart: boolean): string {
       return `${Math.abs(d)}f early${ms}`;
     case 'LATE':
       return `${d}f late${ms}`;
+    case 'SPLIT': {
+      const parts = (r.presses ?? []).map((p) => `${p.press.button} ${pressTimingText(p)}`.trim());
+      return `Split: ${parts.join(', ')}`;
+    }
+    case 'PARTIAL': {
+      const pressed = (r.presses ?? []).map((p) => p.press.button);
+      const missing = r.expected.filter((b) => !pressed.includes(b));
+      const got = pressed.length === 1 ? `${pressed[0]} only` : buttonsName(pressed);
+      return `Partial: ${got}, ${buttonsName(missing)} missing`;
+    }
     case 'WRONG_BUTTON': {
-      const what = `Wrong button: ${r.press?.button ?? '?'}`;
+      const pressed = r.presses ? buttonsName(r.presses.map((p) => p.press.button)) : (r.press?.button ?? '?');
+      const what = `Wrong button: ${pressed}`;
       if (isStart || r.deltaFrames === undefined) return what;
       return `${what} at ${signedFrames(d)}${ms}`;
     }
@@ -55,5 +86,7 @@ export function describeAttempt(result: AttemptResult): string {
       return `Missed step ${stepNo}.`;
     case 'wrongButton':
       return `Wrong button on step ${stepNo}.`;
+    case 'partial':
+      return `Partial chord on step ${stepNo}.`;
   }
 }
