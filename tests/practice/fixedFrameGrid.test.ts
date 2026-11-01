@@ -6,7 +6,7 @@ import { METRONOME_FRAME_POINT, PREVIEW_LEAD_MS, metronomeTicks, timingPreview }
 import { COUNTDOWN_BEATS, COUNTDOWN_BEAT_MS, createPractice, practicePress } from '../../src/practice/session';
 import { buildTimeline } from '../../src/practice/timeline';
 
-// Practice side of the fixed frame grid (SPEC Decisions log, "Fixed frame grid"): the metronome,
+// Practice side of the fixed frame grid (DECISIONS.md, "Fixed frame grid"): the metronome,
 // Hear timing preview and timeline count relative steps from the frame the previous press landed
 // on, the same as grading. Example from the proposal: LP at 0 ms, MP at 60 ms (frame 3, 10 ms in),
 // gaps 3/3, so HP's on-time frame is 6.
