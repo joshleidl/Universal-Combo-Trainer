@@ -227,6 +227,8 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 
 ## 9. Out of scope (for now)
 - Motion inputs (quarter-circles, charge inputs), negative edge (a release as an input), and directions in chords. Button chords are supported (§3, "Chords").
+- **Frame snapshots:** grouping every press, release and held input on one grid frame into a single snapshot that grading reads at once, the way a game reads input once per frame. Today the engine grades press by press, so presses on the same frame can give different results depending on their order (BACKLOG, "same-frame presses" bug). Already decided for it: a tap pressed and released within one frame doesn't register, as in a game that reads held state once per frame; and the chord window's `ms` unit becomes obsolete, since snapshots group presses by frame. Found during the direction+button interview; see [docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md](docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md).
+- **Direction+button follow-ups** (found during the same interview, 2026-11-02): facing / side switching (forward and back relative to the character; steps use absolute `RIGHT` / `LEFT`); a per-combo SOCD rule (the proposal resolves opposite directions to neutral); numpad notation as a display option (the proposal uses arrows); setting a step's direction by holding it on the stick; a "return to neutral" position step; a show/hide toggle for the live input display.
 - Reading game memory or game frame data.
 - Accounts, online leaderboards, any backend.
 
