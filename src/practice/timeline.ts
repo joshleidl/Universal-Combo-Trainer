@@ -7,7 +7,7 @@ import type { ButtonId, Grade } from '../engine/types';
 
 export interface TimelineStep {
   stepIndex: number;
-  expected: ButtonId;
+  expected: ButtonId[];
   label?: string;
   grade: Grade;
   /** First-input start step: it defines frame 0, so it has no window. */
@@ -17,10 +17,14 @@ export interface TimelineStep {
   windowEnd: number;
   /** Start of the target frame. */
   target: number;
-  /** When the press landed (latency-corrected), or null for MISSED. */
+  /** When the graded press landed (latency-corrected; a chord's last press), or null for MISSED. */
   input: number | null;
-  /** The button actually pressed, when it differs from `expected`. */
+  /** Single-button steps: the button actually pressed, when it differs from `expected`. */
   pressed?: ButtonId;
+  /** Chord steps: every press of the chord, in order. `wrong` marks the press that broke it. */
+  chordPresses?: TimelineMark[];
+  /** Chord steps: from the chord's first press to the end of its window. */
+  chordWindow?: { start: number; end: number };
   /** For MISSED: the end of the last frame a press would still have counted. */
   deadline?: number;
 }
@@ -28,6 +32,7 @@ export interface TimelineStep {
 export interface TimelineMark {
   frame: number;
   button: ButtonId;
+  wrong?: boolean;
 }
 
 export interface Timeline {
@@ -68,7 +73,27 @@ export function buildTimeline(state: AttemptState): Timeline | null {
       input: r.correctedTimestamp !== undefined ? toFrame(r.correctedTimestamp) : null,
     };
     if (step.label) out.label = step.label;
-    if (r.press && r.press.button !== r.expected) out.pressed = r.press.button;
+    if (r.presses) {
+      const last = r.presses.length - 1;
+      out.chordPresses = r.presses.map((p, k) => {
+        const mark: TimelineMark = { frame: toFrame(p.correctedTimestamp), button: p.press.button };
+        if (r.grade === 'WRONG_BUTTON' && k === last) mark.wrong = true;
+        return mark;
+      });
+      const first = r.presses[0];
+      const win = step.chordWindow;
+      if (first && win) {
+        const start = toFrame(first.correctedTimestamp);
+        // Frames: to the end of the last frame allowed; ms: exactly `size` ms after the first press.
+        const end =
+          win.unit === 'frames'
+            ? msToFrame(first.correctedTimestamp - frame0, combo.fps) + win.size + 1
+            : start + win.size / fms;
+        out.chordWindow = { start, end };
+      }
+    } else if (r.press && r.press.button !== r.expected[0]) {
+      out.pressed = r.press.button;
+    }
     if (r.grade === 'MISSED') out.deadline = ref + lastAcceptedFrame(step, settings.timeoutFrames) + 1;
     return out;
   });
@@ -79,7 +104,13 @@ export function buildTimeline(state: AttemptState): Timeline | null {
 
   const furthest = Math.max(
     1,
-    ...steps.flatMap((s) => [s.windowEnd, s.input ?? 0, s.deadline ?? 0]),
+    ...steps.flatMap((s) => [
+      s.windowEnd,
+      s.input ?? 0,
+      s.deadline ?? 0,
+      s.chordWindow?.end ?? 0,
+      ...(s.chordPresses ?? []).map((m) => m.frame),
+    ]),
     ...ignored.map((m) => m.frame),
   );
   return { fps: combo.fps, steps, ignored, endFrame: Math.ceil(furthest) + 2 };

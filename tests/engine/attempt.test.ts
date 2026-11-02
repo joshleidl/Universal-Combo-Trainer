@@ -16,7 +16,7 @@ import type { Combo, InputSource, PressEvent, Settings, Step } from '../../src/e
 // --- helpers ---------------------------------------------------------------
 
 const s = (button: string, targetFrame: number, tolEarly = 0, tolLate = 0): Step => ({
-  button,
+  buttons: [button],
   targetFrame,
   tolEarly,
   tolLate,
@@ -251,7 +251,7 @@ describe('wrong button', () => {
     expect(r.results).toHaveLength(2);
     expect(r.results[1]).toMatchObject({
       grade: 'WRONG_BUTTON',
-      expected: 'MP',
+      expected: ['MP'],
       inputFrame: 3,
       deltaFrames: 0,
     });
@@ -261,7 +261,7 @@ describe('wrong button', () => {
   it('strict: a wrong first press in firstInput mode ends the attempt', () => {
     const r = attemptResult(press(begin(c), p('HK', 1000)))!;
     expect(r.endedBy).toBe('wrongButton');
-    expect(r.results[0]).toMatchObject({ stepIndex: 0, grade: 'WRONG_BUTTON', expected: 'LP' });
+    expect(r.results[0]).toMatchObject({ stepIndex: 0, grade: 'WRONG_BUTTON', expected: ['LP'] });
   });
 
   it('non-strict: logs and ignores wrong presses; the step keeps waiting', () => {
@@ -295,7 +295,7 @@ describe('missed / timeout', () => {
     const st = tick(running(), f(1000, 35));
     const r = attemptResult(st)!;
     expect(r.endedBy).toBe('missed');
-    expect(r.results[1]).toEqual({ stepIndex: 1, expected: 'MP', grade: 'MISSED' });
+    expect(r.results[1]).toEqual({ stepIndex: 1, expected: ['MP'], grade: 'MISSED' });
   });
 
   it('a press on the last accepted frame is graded LATE', () => {

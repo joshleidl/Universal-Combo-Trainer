@@ -1,13 +1,20 @@
 // Session stats (SPEC §7): per-step on-time rate, average and spread of deltaFrames,
 // and a running streak. Pure; the UI decides when a session resets.
 
-import type { AttemptResult } from '../engine/types';
+import type { AttemptResult, Grade } from '../engine/types';
+
+const GRADES: readonly Grade[] = ['ON_TIME', 'EARLY', 'LATE', 'SPLIT', 'PARTIAL', 'WRONG_BUTTON', 'MISSED'];
+
+const noCounts = (): Record<Grade, number> =>
+  Object.fromEntries(GRADES.map((g) => [g, 0])) as Record<Grade, number>;
 
 export interface StepStats {
   /** Attempts that got as far as this step (it received any grade). */
   readonly reached: number;
   readonly onTime: number;
-  /** deltaFrames of every correct-button press (ON_TIME, EARLY or LATE). */
+  /** How many times the step got each grade. */
+  readonly counts: Readonly<Record<Grade, number>>;
+  /** deltaFrames of every correct-button press (ON_TIME, EARLY, LATE, or a complete SPLIT chord). */
   readonly deltas: readonly number[];
 }
 
@@ -23,11 +30,16 @@ export interface SessionStats {
 export interface StepSummary {
   reached: number;
   onTime: number;
+  counts: Readonly<Record<Grade, number>>;
   /** onTime / reached, or null before the step has been reached. */
   onTimeRate: number | null;
   meanDelta: number | null;
   /** Population standard deviation of deltaFrames, or null with no presses. */
   spread: number | null;
+}
+
+export function emptyStepStats(): StepStats {
+  return { reached: 0, onTime: 0, counts: noCounts(), deltas: [] };
 }
 
 export function emptyStats(stepCount: number): SessionStats {
@@ -36,7 +48,7 @@ export function emptyStats(stepCount: number): SessionStats {
     successes: 0,
     streak: 0,
     bestStreak: 0,
-    steps: Array.from({ length: stepCount }, () => ({ reached: 0, onTime: 0, deltas: [] })),
+    steps: Array.from({ length: stepCount }, emptyStepStats),
   };
 }
 
@@ -45,10 +57,11 @@ export function recordAttempt(stats: SessionStats, result: AttemptResult): Sessi
   const steps = stats.steps.map((s, i) => {
     const r = result.results.find((x) => x.stepIndex === i);
     if (!r) return s;
-    const timed = r.grade === 'ON_TIME' || r.grade === 'EARLY' || r.grade === 'LATE';
+    const timed = r.grade === 'ON_TIME' || r.grade === 'EARLY' || r.grade === 'LATE' || r.grade === 'SPLIT';
     return {
       reached: s.reached + 1,
       onTime: s.onTime + (r.grade === 'ON_TIME' ? 1 : 0),
+      counts: { ...s.counts, [r.grade]: s.counts[r.grade] + 1 },
       deltas: timed && r.deltaFrames !== undefined ? [...s.deltas, r.deltaFrames] : s.deltas,
     };
   });
@@ -70,6 +83,7 @@ export function summarizeStep(s: StepStats): StepSummary {
   return {
     reached: s.reached,
     onTime: s.onTime,
+    counts: s.counts,
     onTimeRate: s.reached > 0 ? s.onTime / s.reached : null,
     meanDelta: mean,
     spread,

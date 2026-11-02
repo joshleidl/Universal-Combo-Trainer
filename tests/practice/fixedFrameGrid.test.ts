@@ -11,7 +11,7 @@ import { buildTimeline } from '../../src/practice/timeline';
 // on, the same as grading. Example from the proposal: LP at 0 ms, MP at 60 ms (frame 3, 10 ms in),
 // gaps 3/3, so HP's on-time frame is 6.
 
-const s = (button: string, targetFrame: number): Step => ({ button, targetFrame, tolEarly: 0, tolLate: 0 });
+const s = (button: string, targetFrame: number): Step => ({ buttons: [button], targetFrame, tolEarly: 0, tolLate: 0 });
 const combo = (steps: Step[], opts: Partial<Omit<Combo, 'steps'>> = {}): Combo => ({
   name: 'fixed grid',
   steps,

@@ -9,8 +9,8 @@ const combo: Combo = {
   timingMode: 'absolute',
   startMode: 'countdown',
   steps: [
-    { button: 'MK', targetFrame: 0, tolEarly: 1, tolLate: 2, label: 'cr.MK' },
-    { button: 'HP', targetFrame: 7, tolEarly: 0, tolLate: 0 },
+    { buttons: ['MK'], targetFrame: 0, tolEarly: 1, tolLate: 2, label: 'cr.MK' },
+    { buttons: ['HP'], targetFrame: 7, tolEarly: 0, tolLate: 0 },
   ],
 };
 const json = (o: unknown) => btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -44,7 +44,7 @@ describe('share by URL', () => {
   it('rejects wrong shapes, unknown versions and invalid combos', () => {
     const ok = { v: 1, n: 'x', f: 60, t: 'r', s: 'f', p: [['LP', 0, 0, 0]] };
     expect(decodeCombo(json(ok))).not.toBeNull();
-    expect(decodeCombo(json({ ...ok, v: 2 }))).toBeNull();
+    expect(decodeCombo(json({ ...ok, v: 3 }))).toBeNull();
     expect(decodeCombo(json({ ...ok, t: 'x' }))).toBeNull();
     expect(decodeCombo(json({ ...ok, p: [['LP', '0', 0, 0]] }))).toBeNull();
     expect(decodeCombo(json({ ...ok, p: [['LP', 0, 0, 0, 5]] }))).toBeNull();

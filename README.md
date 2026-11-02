@@ -8,10 +8,11 @@ It works with any game, because it never touches the game. It only measures your
 
 ## Features
 
-- **Combo editor:** add, remove and reorder steps; set each step's button, target frame, early/late tolerance and label. Save, rename and delete combos in your browser. Three example combos are included.
+- **Combo editor:** add, remove and reorder steps; set each step's button, target frame, early/late tolerance and label. Save, rename and delete combos in your browser. Four example combos are included.
+- **Chords:** a step can be two or more buttons pressed together (e.g. LP+LK), with its own chord window in frames or milliseconds.
 - **Two timing modes:** *relative* (each step counts from the frame the previous press landed on, the way links are usually described) or *absolute* (every step counts from the start of the attempt).
 - **Two start modes:** start on your first press, or start from a countdown.
-- **Live feedback:** each step lights up as it's graded, plus a frame timeline of your last attempt and per-step session stats (on-time rate, average and spread, streak).
+- **Live feedback:** each step lights up as it's graded, plus a frame timeline of your last attempt and per-step session stats (on-time rate, other results, average and spread, streak).
 - **Keyboard and gamepad:** works with arcade sticks, hitboxes and pads through the Gamepad API. Keys and pad controls can be remapped.
 - **Latency calibration:** tap along to a beat to measure and subtract your setup's input delay, separately for keyboard and gamepad.
 - **Sound (optional):** metronome ticks on target frames, on-time and miss sounds, and a "Hear timing" preview of the combo's rhythm.
@@ -31,7 +32,7 @@ Change them on the Controls page.
 
 ## How grading works
 
-Frames are worked out from timestamps, not counted by a loop: at 60 fps, one frame is 16.67 ms. Each attempt has one fixed frame grid starting at frame 0. A press is **on time** if it lands within the step's tolerance of its target frame, **early** or **late** if it lands outside it, **wrong button** if you press a different button (in strict mode this ends the attempt), and **missed** if nothing arrives before the timeout. The full rules are in [SPEC.md](SPEC.md) §3.
+Frames are worked out from timestamps, not counted by a loop: at 60 fps, one frame is 16.67 ms. Each attempt has one fixed frame grid starting at frame 0. A press is **on time** if it lands within the step's tolerance of its target frame, **early** or **late** if it lands outside it, **wrong button** if you press a different button (in strict mode this ends the attempt), and **missed** if nothing arrives before the timeout. Chords are graded on the press that completes them, and can also come out **split** (one press early, another not) or **partial** (a button missing). The full rules are in [SPEC.md](SPEC.md) §3.
 
 One known limit: browsers read gamepads by polling. The app polls every 4 ms while the page has focus and warns you if the measured rate is about one frame or slower. See [SPEC.md](SPEC.md) §5 for measurements.
 
