@@ -2,8 +2,9 @@
 // runs the countdown before each attempt. Pure, like the engine: every function returns a new
 // state. All timestamps are in the performance.now() clock.
 
-import { arm, attemptResult, createAttempt, press, start, tick, type AttemptState } from '../engine/attempt';
-import type { Combo, PressEvent, Settings } from '../engine/types';
+import { arm, attemptResult, createAttempt, press, release, start, tick, type AttemptState } from '../engine/attempt';
+import { isDirection, resolvePosition } from '../engine/direction';
+import type { ButtonId, Combo, HeldPosition, PressEvent, ReleaseEvent, Settings } from '../engine/types';
 import { emptyStats, recordAttempt, type SessionStats } from './stats';
 
 /** Beats before "Go" (shown as 3, 2, 1). */
@@ -32,6 +33,20 @@ export interface PracticeState {
   readonly stats: SessionStats;
   /** The countdown before the next attempt, or null when none is running. */
   readonly countdown: Countdown | null;
+  /**
+   * Every mapped control held right now (buttons and directions, in press order). Each new
+   * attempt arms with it, so directions held across attempts count (SPEC §4, "Engine API:
+   * directions").
+   */
+  readonly held: readonly ButtonId[];
+}
+
+/** What the live input display shows (SPEC §7, "Directions in the UI"). */
+export interface LiveInput {
+  /** The stick position after SOCD. */
+  position: HeldPosition;
+  /** Buttons held right now (no directions), in press order. */
+  buttons: ButtonId[];
 }
 
 /** Time of "Go": frame 0 in countdown start mode; the attempt arms then in first-input mode. */
@@ -61,16 +76,27 @@ export function countdownShown(c: Countdown | null, now: number): number | null 
 
 /**
  * Starts a session. First-input combos start armed, waiting for the first press. Countdown
- * combos wait for any press (or restart) to start the countdown. Throws if the combo or
- * settings are invalid.
+ * combos wait for a button press (or restart) to start the countdown. `held` is the controls
+ * held right now. Throws if the combo or settings are invalid.
  */
-export function createPractice(combo: Combo, settings: Settings, stats?: SessionStats): PracticeState {
+export function createPractice(
+  combo: Combo,
+  settings: Settings,
+  stats?: SessionStats,
+  held: readonly ButtonId[] = [],
+): PracticeState {
   return {
-    attempt: arm(createAttempt(combo, settings)),
+    attempt: arm(createAttempt(combo, settings), held),
     lastFinished: null,
     stats: stats && stats.steps.length === combo.steps.length ? stats : emptyStats(combo.steps.length),
     countdown: null,
+    held: [...held],
   };
+}
+
+/** The held stick position and buttons, for the live input display. */
+export function liveInput(state: PracticeState): LiveInput {
+  return { position: resolvePosition(state.held), buttons: state.held.filter((b) => !isDirection(b)) };
 }
 
 /** True when a countdown combo is idle, waiting for a press to start the countdown. */
@@ -82,11 +108,18 @@ export function waitingToStart(state: PracticeState): boolean {
   );
 }
 
-/** Feeds a mapped press into the session. */
+/**
+ * Feeds a mapped press into the session. Only a button press starts or restarts a countdown; a
+ * direction press only changes the held state (SPEC §7, "Countdowns").
+ */
 export function practicePress(state: PracticeState, ev: PressEvent): PracticeState {
   const t = ev.timestamp;
   // Catch up on countdown steps that are already due at the press time (ticks can lag).
-  let st = advanceCountdown(state, t);
+  let st = withHeld(advanceCountdown(state, t), ev.button, true);
+
+  // The engine keeps the held set in every phase, so a direction pressed during a countdown
+  // counts once the attempt runs. A direction can also close a pending check.
+  if (isDirection(ev.button)) return afterStep(st, press(st.attempt, ev), t);
 
   if (st.countdown) {
     // In countdown mode the attempt is live from the last beat; before that (and in
@@ -98,6 +131,16 @@ export function practicePress(state: PracticeState, ev: PressEvent): PracticeSta
   }
 
   return afterStep(st, press(st.attempt, ev), t);
+}
+
+/**
+ * Feeds a mapped release into the session. It never starts or restarts a countdown; a
+ * direction release changes the held position.
+ */
+export function practiceRelease(state: PracticeState, ev: ReleaseEvent): PracticeState {
+  const t = ev.timestamp;
+  const st = withHeld(advanceCountdown(state, t), ev.button, false);
+  return afterStep(st, release(st.attempt, ev), t);
 }
 
 /**
@@ -114,7 +157,7 @@ export function practiceTick(state: PracticeState, now: number): PracticeState {
  * combos arm right away; countdown combos start a fresh countdown.
  */
 export function practiceRestart(state: PracticeState, now: number): PracticeState {
-  const attempt = fresh(state.attempt);
+  const attempt = fresh(state.attempt, state.held);
   if (attempt.combo.startMode === 'countdown') return { ...state, attempt, countdown: countdownFrom(now) };
   if (attempt === state.attempt && state.countdown === null) return state;
   return { ...state, attempt, countdown: null };
@@ -125,7 +168,7 @@ export function practiceRestart(state: PracticeState, now: number): PracticeStat
  * and the last result stay.
  */
 export function practiceWithSettings(state: PracticeState, settings: Settings): PracticeState {
-  return { ...state, attempt: arm(createAttempt(state.attempt.combo, settings)), countdown: null };
+  return { ...state, attempt: arm(createAttempt(state.attempt.combo, settings), state.held), countdown: null };
 }
 
 export function resetStats(state: PracticeState): PracticeState {
@@ -142,12 +185,22 @@ export function shownAttempt(state: PracticeState): AttemptState {
   return state.lastFinished;
 }
 
-/** A fresh armed attempt with the same combo and settings (or the current one if it already is). */
-function fresh(attempt: AttemptState): AttemptState {
+/**
+ * A fresh armed attempt with the same combo and settings, armed with the controls `held` now
+ * (or the current one if it already is fresh: it has been tracking the held directions itself).
+ */
+function fresh(attempt: AttemptState, held: readonly ButtonId[]): AttemptState {
   if (attempt.phase === 'armed' && attempt.results.length === 0 && attempt.ignoredPresses.length === 0) {
     return attempt;
   }
-  return arm(createAttempt(attempt.combo, attempt.settings));
+  return arm(createAttempt(attempt.combo, attempt.settings), held);
+}
+
+/** The state with `button` added to (down) or removed from the held controls. */
+function withHeld(state: PracticeState, button: ButtonId, down: boolean): PracticeState {
+  const isHeld = state.held.includes(button);
+  if (down === isHeld) return state;
+  return { ...state, held: down ? [...state.held, button] : state.held.filter((b) => b !== button) };
 }
 
 function advanceCountdown(state: PracticeState, now: number): PracticeState {
@@ -156,9 +209,11 @@ function advanceCountdown(state: PracticeState, now: number): PracticeState {
   let attempt = state.attempt;
   if (attempt.combo.startMode === 'countdown') {
     // Frame 0 is "Go"; the attempt starts running at the last beat so early presses grade EARLY.
-    if (attempt.phase !== 'running' && now >= countdownLiveAt(c)) attempt = start(fresh(attempt), countdownGoAt(c));
+    if (attempt.phase !== 'running' && now >= countdownLiveAt(c)) {
+      attempt = start(fresh(attempt, state.held), countdownGoAt(c));
+    }
   } else if (now >= countdownGoAt(c)) {
-    attempt = fresh(attempt);
+    attempt = fresh(attempt, state.held);
   }
   const countdown = now >= countdownGoAt(c) ? null : c;
   if (attempt === state.attempt && countdown === c) return state;
@@ -171,6 +226,7 @@ function afterStep(state: PracticeState, attempt: AttemptState, at: number): Pra
   if (!justFinished) return { ...state, attempt };
   const result = attemptResult(attempt);
   return {
+    ...state,
     attempt,
     lastFinished: attempt,
     stats: result ? recordAttempt(state.stats, result) : state.stats,

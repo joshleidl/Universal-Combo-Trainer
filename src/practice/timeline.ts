@@ -1,9 +1,10 @@
 // Timeline geometry for an attempt (SPEC §7): where each step's on-time window and actual
 // input fall, in frames since frame 0. Pure; the UI only scales these numbers to pixels.
 
-import type { AttemptState } from '../engine/attempt';
+import { attemptResult, type AttemptState } from '../engine/attempt';
+import { hasDirectionCheck } from '../engine/direction';
 import { correctedTimestamp, frameMs, lastAcceptedFrame, msToFrame } from '../engine/timing';
-import type { ButtonId, Grade } from '../engine/types';
+import type { ButtonId, Grade, HeldPosition, Position } from '../engine/types';
 
 export interface TimelineStep {
   stepIndex: number;
@@ -27,6 +28,18 @@ export interface TimelineStep {
   chordWindow?: { start: number; end: number };
   /** For MISSED: the end of the last frame a press would still have counted. */
   deadline?: number;
+  /**
+   * Steps that ran a direction check: the position held at the end of the graded press's frame,
+   * tagged on that press's dot (a chord's last press), and whether the check failed.
+   */
+  direction?: { held: HeldPosition; mistake: boolean };
+}
+
+/** One stretch of the stick lane: a position held from the start of `start` to the start of `end`. */
+export interface StickSegment {
+  start: number;
+  end: number;
+  position: Position;
 }
 
 export interface TimelineMark {
@@ -40,6 +53,11 @@ export interface Timeline {
   steps: TimelineStep[];
   /** Wrong presses ignored in non-strict mode, after frame 0. */
   ignored: TimelineMark[];
+  /**
+   * The stick lane, or null when it isn't drawn: drawn only if the combo has a step with a
+   * direction check or a direction was held during the attempt. Neutral stretches are left out.
+   */
+  stick: StickSegment[] | null;
   /** Whole frame where the ruler should end (includes a little padding). */
   endFrame: number;
 }
@@ -95,8 +113,13 @@ export function buildTimeline(state: AttemptState): Timeline | null {
       out.pressed = r.press.button;
     }
     if (r.grade === 'MISSED') out.deadline = ref + lastAcceptedFrame(step, settings.timeoutFrames) + 1;
+    if (r.direction) out.direction = { held: r.direction.held, mistake: r.directionMistake !== undefined };
     return out;
   });
+
+  // Position history: the position at each frame's end, from frame 0 (finished attempts only).
+  const positions = attemptResult(state)?.positions ?? [];
+  const showStick = combo.steps.some(hasDirectionCheck) || positions.some((c) => c.position !== 5);
 
   const ignored = state.ignoredPresses
     .map((p) => ({ frame: toFrame(correctedTimestamp(p, settings)), button: p.button }))
@@ -112,8 +135,24 @@ export function buildTimeline(state: AttemptState): Timeline | null {
       ...(s.chordPresses ?? []).map((m) => m.frame),
     ]),
     ...ignored.map((m) => m.frame),
+    // A position change is drawn from the start of its frame through its end.
+    ...(showStick ? positions.map((c) => c.frame + 1) : []),
   );
-  return { fps: combo.fps, steps, ignored, endFrame: Math.ceil(furthest) + 2 };
+  const endFrame = Math.ceil(furthest) + 2;
+  return { fps: combo.fps, steps, ignored, stick: showStick ? stickSegments(positions, endFrame) : null, endFrame };
+}
+
+/**
+ * Stick lane segments from the position history: each position from the frame it was held at
+ * the end of, to the next change; the last one runs to the end of the ruler. Neutral is skipped.
+ */
+function stickSegments(positions: readonly { frame: number; position: HeldPosition }[], endFrame: number): StickSegment[] {
+  const out: StickSegment[] = [];
+  positions.forEach((c, i) => {
+    if (c.position === 5) return;
+    out.push({ start: c.frame, end: positions[i + 1]?.frame ?? endFrame, position: c.position });
+  });
+  return out;
 }
 
 /** A tick spacing that gives roughly 10 or fewer labelled ticks. */

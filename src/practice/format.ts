@@ -1,6 +1,9 @@
 // Feedback text for results (SPEC §7), e.g. "2f late (+31.4 ms)". Pure string formatting.
 
-import type { AttemptResult, ButtonId, ChordPress, StepResult } from '../engine/types';
+import { chordGrade } from '../engine/chord';
+import { positionDirections } from '../engine/direction';
+import type { AttemptResult, ButtonId, ChordPress, Grade, HeldPosition, PressTiming, Step, StepResult } from '../engine/types';
+import type { ResultKind } from './stats';
 
 const MINUS = '−';
 
@@ -22,6 +25,34 @@ export function buttonsName(buttons: readonly ButtonId[]): string {
   return buttons.join('+');
 }
 
+/** Arrows for stick positions in numpad layout (SPEC §7, "Directions in the UI"); 5 is neutral. */
+const ARROWS: Readonly<Record<HeldPosition, string>> = {
+  1: '↙',
+  2: '↓',
+  3: '↘',
+  4: '←',
+  5: '•',
+  6: '→',
+  7: '↖',
+  8: '↑',
+  9: '↗',
+};
+
+/** "↘" for 3, "•" for neutral. */
+export function positionArrow(p: HeldPosition): string {
+  return ARROWS[p];
+}
+
+/**
+ * A step in arrow notation: "→+MP", "←+LP+LK", "HP (neutral)" for an exact plain step, plain
+ * "MP" otherwise. The "at least" marker comes with the editor (direction+button session E).
+ */
+export function stepNotation(step: Pick<Step, 'buttons' | 'direction' | 'directionMatch'>): string {
+  const buttons = buttonsName(step.buttons);
+  if (step.direction !== undefined) return `${positionArrow(step.direction)}+${buttons}`;
+  return step.directionMatch === 'exact' ? `${buttons} (neutral)` : buttons;
+}
+
 /** How one chord press landed: "3f early", "on time", "on time (+1f)", "2f late". */
 function pressTimingText(p: ChordPress): string {
   const d = p.deltaFrames ?? 0;
@@ -37,8 +68,56 @@ function pressTimingText(p: ChordPress): string {
   }
 }
 
-/** One-line feedback for a graded step. `isStart` marks a first-input start step. */
-export function describeStep(r: StepResult, isStart: boolean): string {
+/**
+ * One-line feedback for a graded step. `isStart` marks a first-input start step. A direction
+ * mistake gets the timing text its presses earned, then a direction note: "On time (+5.2 ms) ·
+ * Direction: ↘, wanted → exactly". Wording that timing needs the step's tolerances; without
+ * `step` they count as 0.
+ */
+export function describeStep(r: StepResult, isStart: boolean, step?: Pick<Step, 'tolEarly' | 'tolLate'>): string {
+  if (r.directionMistake && r.direction) {
+    const timing = describeGrade({ ...r, grade: timingGrade(r, step ?? { tolEarly: 0, tolLate: 0 }) }, isStart);
+    return `${timing} · ${directionNote(r.direction)}`;
+  }
+  return describeGrade(r, isStart);
+}
+
+/**
+ * The grade a step's presses earned on timing alone, before a failed direction check replaced
+ * it: a chord's per-press timings (split rule), or a single press's deltaFrames against the
+ * step's tolerances.
+ */
+export function timingGrade(r: StepResult, step: Pick<Step, 'tolEarly' | 'tolLate'>): Grade {
+  if (r.presses) {
+    const timings = r.presses.map((p) => p.timing).filter((t): t is PressTiming => t !== undefined);
+    // A first-input start chord has no timing; it counts as on time like any start step.
+    return timings.length > 0 ? chordGrade(timings) : 'ON_TIME';
+  }
+  const d = r.deltaFrames ?? 0;
+  if (d < -step.tolEarly) return 'EARLY';
+  if (d > step.tolLate) return 'LATE';
+  return 'ON_TIME';
+}
+
+/**
+ * "Direction: ↘, wanted → exactly" (SPEC §7): "exactly" when an exact step's held position
+ * contains the wanted one, "any ↓" for at least, "neutral" for an exact plain step, and
+ * "none" when nothing was held.
+ */
+export function directionNote(d: NonNullable<StepResult['direction']>): string {
+  const held = d.held === 5 ? 'none' : positionArrow(d.held);
+  let wanted: string;
+  if (d.wanted === 5) wanted = 'neutral';
+  else if (d.match === 'atLeast') wanted = `any ${positionArrow(d.wanted)}`;
+  else {
+    const heldDirs = positionDirections(d.held);
+    const contains = positionDirections(d.wanted).every((x) => heldDirs.includes(x));
+    wanted = contains ? `${positionArrow(d.wanted)} exactly` : positionArrow(d.wanted);
+  }
+  return `Direction: ${held}, wanted ${wanted}`;
+}
+
+function describeGrade(r: StepResult, isStart: boolean): string {
   const ms = r.deltaMs !== undefined ? ` (${signedMs(r.deltaMs)})` : '';
   const d = r.deltaFrames ?? 0;
   switch (r.grade) {
@@ -69,6 +148,24 @@ export function describeStep(r: StepResult, isStart: boolean): string {
     case 'MISSED':
       return 'Missed';
   }
+}
+
+/** Labels for "Other results" in the stats table, in display order (SPEC §7). */
+const OTHER_RESULTS: readonly [ResultKind, string][] = [
+  ['EARLY', 'early'],
+  ['LATE', 'late'],
+  ['SPLIT', 'split'],
+  ['PARTIAL', 'partial'],
+  ['WRONG_BUTTON', 'wrong'],
+  ['wrongDirection', 'wrong direction'],
+  ['missingDirection', 'missing direction'],
+  ['MISSED', 'missed'],
+];
+
+/** Results other than on time, e.g. "2 early · 1 wrong direction", or "—" when there are none. */
+export function otherResultsText(counts: Readonly<Record<ResultKind, number>>): string {
+  const parts = OTHER_RESULTS.filter(([k]) => counts[k] > 0).map(([k, name]) => `${counts[k]} ${name}`);
+  return parts.length > 0 ? parts.join(' · ') : '—';
 }
 
 /** One-line summary of a finished attempt. */

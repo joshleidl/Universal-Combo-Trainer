@@ -706,6 +706,74 @@ button.danger {
   text-underline-offset: 3px;
 }
 
+/* An exact plain step's "(neutral)" note. */
+.ps-neutral {
+  font-size: 0.75em;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Live input display: stick gate and held buttons. Shows input without judging it. */
+.live-input {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.gate {
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  grid-template-rows: repeat(3, 22px);
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.gate-cell {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.75em;
+  color: var(--border);
+  user-select: none;
+}
+
+.gate-cell.on {
+  background: var(--accent);
+  color: var(--surface);
+}
+
+/* The neutral cell shows a ring when lit, so the gate always says where the stick is. */
+.gate-cell:nth-child(5).on {
+  background: none;
+  border: 2px solid var(--accent);
+}
+
+.input-chips {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 4px;
+}
+
+.input-chip {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.8em;
+  text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.input-chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface);
+}
+
 .timeline {
   display: flex;
   flex-direction: column;
@@ -802,6 +870,36 @@ button.danger {
 .tl-lane.chord .tl-tag { color: var(--muted); }
 .tl-lane.chord .tl-tag.below { top: auto; bottom: -2px; }
 .tl-lane.chord .tl-tag.wrong-press { color: var(--wrong); font-weight: 600; }
+
+/* Stick lane: one segment per held position, neutral left empty. */
+.tl-lane.stick .tl-track { height: 20px; }
+
+.tl-stick-seg {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  overflow: hidden;
+  background: var(--current-bg);
+  border-left: 1px solid var(--accent);
+  border-radius: 2px;
+  font-size: 0.75em;
+  line-height: 14px;
+  padding-left: 2px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* The position a direction check read, left of the graded press's dot; red on a mistake. */
+.tl-dir {
+  position: absolute;
+  top: 50%;
+  transform: translate(calc(-100% - 8px), -50%);
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tl-dir.mistake { color: var(--wrong); }
 
 .tl-lane.ruler .tl-track {
   background: none;

@@ -293,7 +293,7 @@ export interface PollerOptions {
   tracker: GamepadTracker;
   mode: PollMode;
   onPress: (press: InputPress) => void;
-  /** Optional, for diagnostics. Releases are never graded. */
+  /** Optional. Releases are never graded; they change what is held (directions, the live input display). */
   onRelease?: (release: InputRelease) => void;
   deps?: PollerDeps;
 }

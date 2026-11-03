@@ -63,6 +63,14 @@ describe('KeyboardTracker', () => {
     });
   });
 
+  it('releaseAll() forgets held keys and returns their releases', () => {
+    const t = new KeyboardTracker(DEFAULT_MAPPING);
+    t.keyDown(down('KeyA', 0));
+    expect(t.releaseAll(30)).toMatchObject([{ edge: 'release', button: 'LEFT', control: 'KeyA', timestamp: 30 }]);
+    expect(t.releaseAll(40)).toEqual([]);
+    expect(t.keyDown(down('KeyA', 50))).not.toBeNull();
+  });
+
   it('only releases keys whose press was reported', () => {
     const t = new KeyboardTracker(DEFAULT_MAPPING);
     expect(t.keyUp({ code: 'KeyU', timeStamp: 5 })).toBeNull();
@@ -147,6 +155,22 @@ describe('attachKeyboard', () => {
     target.dispatchEvent(new Event('blur'));
     target.dispatchEvent(keyEvent('keydown', 'KeyU', { timeStamp: 2 }));
     expect(presses).toHaveLength(2);
+  });
+
+  it('releases every held key at the blur time, so they read as up', () => {
+    const target = new EventTarget();
+    const releases: InputRelease[] = [];
+    attachKeyboard(target, { mapping: DEFAULT_MAPPING, onPress: () => {}, onRelease: (r) => releases.push(r) });
+    target.dispatchEvent(keyEvent('keydown', 'KeyD', { timeStamp: 1 }));
+    target.dispatchEvent(keyEvent('keydown', 'KeyU', { timeStamp: 2 }));
+    target.dispatchEvent(keyEvent('blur', '', { timeStamp: 50 }));
+    expect(releases.map((r) => [r.button, r.timestamp])).toEqual([
+      ['RIGHT', 50],
+      ['LP', 50],
+    ]);
+    // The keyup that follows (if the browser sends it) gives no second release.
+    target.dispatchEvent(keyEvent('keyup', 'KeyD', { timeStamp: 60 }));
+    expect(releases).toHaveLength(2);
   });
 
   it('stops listening after stop()', () => {

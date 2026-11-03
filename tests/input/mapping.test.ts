@@ -14,6 +14,7 @@ import {
   mapGamepadButton,
   mapKey,
   toPressEvent,
+  toReleaseEvent,
   unbindGamepadAxis,
   unbindGamepadButton,
   unbindKey,
@@ -148,5 +149,16 @@ describe('helpers', () => {
     });
     expect(toPressEvent({ ...base, edge: 'press', button: null })).toBeNull();
     expect(toPressEvent({ ...base, edge: 'release', button: 'LP' })).toBeNull();
+  });
+
+  it('toReleaseEvent keeps mapped releases only', () => {
+    const base = { source: 'keyboard', control: 'KeyD', timestamp: 12.5, timestampSource: 'event' } as const;
+    expect(toReleaseEvent({ ...base, edge: 'release', button: 'RIGHT' })).toEqual({
+      button: 'RIGHT',
+      timestamp: 12.5,
+      source: 'keyboard',
+    });
+    expect(toReleaseEvent({ ...base, edge: 'release', button: null })).toBeNull();
+    expect(toReleaseEvent({ ...base, edge: 'press', button: 'RIGHT' })).toBeNull();
   });
 });

@@ -12,7 +12,8 @@ export type Cue = 'onTime' | 'off' | 'clean' | 'fail';
 /**
  * Sounds for the change from `prev` to `next`. A finished attempt gives one clean/fail sound
  * (not also a sound for its last step). The first-input start step makes no sound, since its
- * timing isn't graded.
+ * timing isn't graded, unless its direction check failed. A direction mistake plays "off" like
+ * any other step that isn't on time, and the attempt goes on (SPEC §7).
  */
 export function practiceCues(prev: PracticeState, next: PracticeState): Cue[] {
   const a = next.attempt;
@@ -22,7 +23,7 @@ export function practiceCues(prev: PracticeState, next: PracticeState): Cue[] {
   }
   const fresh = a.results.filter((r) => !prev.attempt.results.includes(r));
   return fresh
-    .filter((r) => !(a.combo.startMode === 'firstInput' && r.stepIndex === 0))
+    .filter((r) => !(a.combo.startMode === 'firstInput' && r.stepIndex === 0) || r.directionMistake !== undefined)
     .map((r) => (r.grade === 'ON_TIME' ? 'onTime' : 'off'));
 }
 
