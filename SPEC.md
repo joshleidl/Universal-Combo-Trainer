@@ -194,6 +194,7 @@ Additions for "Directions" (§3), approved by the user on 2026-11-02. `Grade` an
   - New `release(state, ev: ReleaseEvent)`: a button release is ignored; a direction release changes the held set.
   - Both keep the held set up to date in the `idle`, `armed` and `running` phases, even when the press itself isn't graded (e.g. before `start()` in countdown mode).
   - `AttemptState` gains `held: readonly ButtonId[]` (directions only) and `pendingCheck`, an end-of-frame check waiting to close (like `chord`). New query `heldPosition(state): HeldPosition` for the live input display.
+  - `AttemptState` also gains `positionLog: readonly { t: number; position: HeldPosition }[]` (approved by the user on 2026-11-02, session C): the position at arm (`t` = −Infinity), then each change of the resolved position with its corrected time. `attemptResult` turns it into `positions` once frame 0 is known; in first-input mode frame 0 isn't known until the first button press, so `positions` can't be built live.
 - **Practice** (`practice/session.ts`): new `practiceRelease(state, ev)`. `createPractice` and restarts pass the held set to `arm`.
 
 ### Saved data

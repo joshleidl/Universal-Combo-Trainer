@@ -3,6 +3,7 @@
 // no sense for the current phase return the state unchanged.
 
 import { chordGrade, chordWindowOf, insideChordWindow, isChord } from './chord';
+import { directionMistake, hasDirectionCheck, isDirection, positionMatches, resolvePosition } from './direction';
 import {
   DEFAULT_SETTINGS,
   correctedTimestamp,
@@ -19,7 +20,10 @@ import type {
   ChordPress,
   Combo,
   Grade,
+  HeldPosition,
+  PositionChange,
   PressEvent,
+  ReleaseEvent,
   Settings,
   Step,
   StepResult,
@@ -39,6 +43,36 @@ export interface AttemptState {
   readonly endedBy: AttemptEnd | null;
   /** The awaited chord step's presses so far, or null when no chord is being collected. */
   readonly chord: PendingChord | null;
+  /** Directions held right now (directions only, in press order), in every phase. */
+  readonly held: readonly ButtonId[];
+  /** A single-button step's end-of-frame direction check waiting to close, or null. */
+  readonly pendingCheck: PendingCheck | null;
+  /**
+   * The position held at arm (time -Infinity), then each change of the resolved position with
+   * its corrected time. `attemptResult` turns it into `positions`. While there is no frame 0 yet
+   * (and nothing pending that would set one) only the current position is kept.
+   */
+  readonly positionLog: readonly PositionLogEntry[];
+}
+
+/** One change of the resolved stick position. */
+export interface PositionLogEntry {
+  /** Corrected time of the input that made the change; -Infinity for the position at arm. */
+  readonly t: number;
+  readonly position: HeldPosition;
+}
+
+/**
+ * A single-button step with a direction check (SPEC §3 Directions, rules 4–5). Its press is
+ * graded; the step stays open until the end of the press's grid frame, then the check runs.
+ */
+export interface PendingCheck {
+  /** The step's result with its timing graded; the check may replace its grade. */
+  readonly result: StepResult;
+  /** Frame-0 time the frame is counted from (the press itself for a first-input start step). */
+  readonly anchor: number;
+  /** Grid frame the press landed on; the check closes once a later frame is reached. */
+  readonly frame: number;
 }
 
 /** A press of a chord being collected, with its latency-corrected timestamp. */
@@ -135,14 +169,32 @@ export function createAttempt(combo: Combo, settings: Settings = DEFAULT_SETTING
     lastInputFrame: null,
     endedBy: null,
     chord: null,
+    held: [],
+    pendingCheck: null,
+    positionLog: [{ t: -Infinity, position: 5 }],
   };
 }
 
-/** Readies an attempt for input. From `done`, this starts a fresh attempt (quick restart). */
-export function arm(state: AttemptState): AttemptState {
-  if (state.phase === 'idle') return { ...state, phase: 'armed' };
-  if (state.phase === 'done') return { ...createAttempt(state.combo, state.settings), phase: 'armed' };
+/**
+ * Readies an attempt for input. From `done`, this starts a fresh attempt (quick restart).
+ * `held` is the directions held right now; left out, the held set the state already has is kept.
+ */
+export function arm(state: AttemptState, held?: readonly ButtonId[]): AttemptState {
+  if (state.phase === 'idle') return armedWith({ ...state, phase: 'armed' }, held ?? state.held);
+  if (state.phase === 'done') {
+    return armedWith({ ...createAttempt(state.combo, state.settings), phase: 'armed' }, held ?? state.held);
+  }
   return state;
+}
+
+function armedWith(state: AttemptState, held: readonly ButtonId[]): AttemptState {
+  const dirs = held.filter((b, i) => isDirection(b) && held.indexOf(b) === i);
+  return { ...state, held: dirs, positionLog: [{ t: -Infinity, position: resolvePosition(dirs) }] };
+}
+
+/** The position the held directions resolve to (SOCD neutral), for the live input display. */
+export function heldPosition(state: AttemptState): HeldPosition {
+  return resolvePosition(state.held);
 }
 
 /**
@@ -185,7 +237,19 @@ function stepAt(state: AttemptState, index: number): Step {
 }
 
 function finish(state: AttemptState, result: StepResult, endedBy: AttemptEnd): AttemptState {
-  return { ...state, phase: 'done', results: [...state.results, result], endedBy, chord: null };
+  return { ...state, phase: 'done', results: [...state.results, result], endedBy, chord: null, pendingCheck: null };
+}
+
+/** A graded first-input start step: sets frame 0 and starts running (or finishes a 1-step combo). */
+function startRunning(state: AttemptState, result: StepResult, frame0: number, lastInputFrame: number): AttemptState {
+  const next: AttemptState = { ...state, phase: 'running', frame0, lastInputFrame, results: [result] };
+  return state.combo.steps.length === 1 ? { ...next, phase: 'done', endedBy: 'completed' } : next;
+}
+
+/** A graded step after the start: moves to the next step, or completes the attempt. */
+function advance(state: AttemptState, result: StepResult, pressFrame: number): AttemptState {
+  if (result.stepIndex === state.combo.steps.length - 1) return finish(state, result, 'completed');
+  return { ...state, results: [...state.results, result], lastInputFrame: pressFrame };
 }
 
 function missedResult(state: AttemptState, index: number): StepResult {
@@ -200,18 +264,104 @@ export function chordProgress(state: AttemptState): ButtonId[] | null {
   return state.chord ? state.chord.presses.map((p) => p.ev.button) : null;
 }
 
-/** Feeds one press edge into the attempt. */
+/**
+ * Feeds one press edge into the attempt. A direction press only changes the held set (SPEC §3
+ * Directions, rule 3); a button press is graded.
+ */
 export function press(state: AttemptState, ev: PressEvent): AttemptState {
+  if (isDirection(ev.button)) return directionEdge(state, ev, true);
   // In countdown mode, presses before start() are ignored.
   const accepts = state.phase === 'running' || (state.phase === 'armed' && state.combo.startMode === 'firstInput');
   if (!accepts) return state;
   const t = correctedTimestamp(ev, state.settings);
-  // A chord that is due to close by now closes before this press is looked at.
-  const st = resolveChord(state, t);
+  // A chord or direction check that is due to close by now closes before this press is looked at.
+  const st = resolveDue(state, t);
+  if (st.pendingCheck) return extraPress(st, ev, t);
   if (st.phase === 'armed') return pressWhileArmed(st, ev, t);
   if (st.phase === 'running') return pressWhileRunning(st, ev, t);
   return st;
 }
+
+/** Feeds one release edge into the attempt. A button release is ignored; a direction release changes the held set. */
+export function release(state: AttemptState, ev: ReleaseEvent): AttemptState {
+  if (!isDirection(ev.button)) return state;
+  return directionEdge(state, ev, false);
+}
+
+/** Closes a chord or direction check that is due by corrected time `t`. */
+function resolveDue(state: AttemptState, t: number): AttemptState {
+  return resolveCheck(resolveChord(state, t), t);
+}
+
+// --- directions (SPEC §3, "Directions") --------------------------------------
+
+/**
+ * A direction press or release, in any phase. Anything due by its corrected time closes first,
+ * reading the held set from before this input; then the held set changes. Never a mistake.
+ */
+function directionEdge(state: AttemptState, ev: PressEvent | ReleaseEvent, down: boolean): AttemptState {
+  const t = correctedTimestamp(ev, state.settings);
+  const st = resolveDue(state, t);
+  const isHeld = st.held.includes(ev.button);
+  if (down === isHeld) return st;
+  const held = down ? [...st.held, ev.button] : st.held.filter((b) => b !== ev.button);
+  return { ...st, held, positionLog: logPosition(st, resolvePosition(held), t) };
+}
+
+/** The position log after the position becomes `position` at corrected time `t`. */
+function logPosition(state: AttemptState, position: HeldPosition, t: number): readonly PositionLogEntry[] {
+  const log = state.positionLog;
+  // After the attempt ends the history is final.
+  if (state.phase === 'done' || log.at(-1)?.position === position) return log;
+  // Until something sets frame 0, every change is before it, so only the latest one matters.
+  const anchored = state.frame0 !== null || state.chord !== null || state.pendingCheck !== null;
+  return anchored ? [...log, { t, position }] : [{ t: -Infinity, position }];
+}
+
+/** The result with the step's direction check applied (SPEC §3 Directions, rule 6). */
+function withDirectionCheck(step: Step, result: StepResult, held: readonly ButtonId[]): StepResult {
+  if (!hasDirectionCheck(step)) return result;
+  const wanted: HeldPosition = step.direction ?? 5;
+  const match = step.directionMatch ?? 'atLeast';
+  const position = resolvePosition(held);
+  const checked: StepResult = { ...result, direction: { wanted, held: position, match } };
+  if (positionMatches(wanted, position, match)) return checked;
+  const mistake = directionMistake(wanted, position);
+  return { ...checked, grade: mistake === 'missing' ? 'PARTIAL' : 'WRONG_BUTTON', directionMistake: mistake };
+}
+
+/** Closes the pending direction check once `t` is past the frame its press landed on. */
+function resolveCheck(state: AttemptState, t: number): AttemptState {
+  const check = state.pendingCheck;
+  if (!check || gridFrame(t, check.anchor, state.combo.fps) <= check.frame) return state;
+  const index = check.result.stepIndex;
+  const result = withDirectionCheck(stepAt(state, index), check.result, state.held);
+  const cleared: AttemptState = { ...state, pendingCheck: null };
+  // A direction mistake never ends the attempt (rule 7).
+  if (isStartStep(state, index)) return startRunning(cleared, result, check.anchor, check.frame);
+  return advance(cleared, result, check.frame);
+}
+
+/**
+ * A button press on the frame a direction check is waiting on (rule 5). Strict: WRONG_BUTTON,
+ * the attempt ends. Non-strict: the step's press and this one are ignored; the step keeps waiting.
+ */
+function extraPress(state: AttemptState, ev: PressEvent, t: number): AttemptState {
+  const check = state.pendingCheck;
+  if (!check) throw new Error('No pending direction check');
+  const cleared: AttemptState = { ...state, pendingCheck: null };
+  if (!state.settings.strict) {
+    const ignored = check.result.press ? [check.result.press, ev] : [ev];
+    return { ...cleared, ignoredPresses: [...state.ignoredPresses, ...ignored] };
+  }
+  const index = check.result.stepIndex;
+  const result: StepResult = isStartStep(state, index)
+    ? { stepIndex: index, expected: [...stepAt(state, index).buttons], grade: 'WRONG_BUTTON', press: ev, correctedTimestamp: t }
+    : { ...timedPress(state, index, ev, t).result, grade: 'WRONG_BUTTON' };
+  return finish(cleared, result, 'wrongButton');
+}
+
+// --- single-button steps -----------------------------------------------------
 
 function pressWhileArmed(state: AttemptState, ev: PressEvent, t: number): AttemptState {
   const step = stepAt(state, 0);
@@ -238,36 +388,31 @@ function pressWhileArmed(state: AttemptState, ev: PressEvent, t: number): Attemp
     deltaFrames: 0,
     deltaMs: 0,
   };
-  const next: AttemptState = {
-    ...state,
-    phase: 'running',
-    frame0: t,
-    lastInputFrame: 0,
-    results: [result],
-  };
-  return state.combo.steps.length === 1 ? { ...next, phase: 'done', endedBy: 'completed' } : next;
+  // With a direction check, the direction is checked at the end of frame 0 (Directions, rule 9).
+  // Until then the attempt stays armed, as a step-1 chord does while it is collected.
+  if (hasDirectionCheck(step)) return { ...state, pendingCheck: { result, anchor: t, frame: 0 } };
+  return startRunning(state, result, t, 0);
 }
 
-function pressWhileRunning(state: AttemptState, ev: PressEvent, t: number): AttemptState {
-  const index = state.results.length;
+/** A press graded against the given step's window, and the grid frame it landed on. */
+function timedPress(
+  state: AttemptState,
+  index: number,
+  ev: PressEvent,
+  t: number,
+): { result: StepResult; pressFrame: number; inputFrame: number } {
   const step = stepAt(state, index);
-  if (isChord(step)) return chordPress(state, index, ev, t);
   const fps = state.combo.fps;
   const { frame0, refFrame } = referenceFor(state, index);
   const pressFrame = gridFrame(t, frame0, fps);
   // Whole-frame math on the grid, so float error can't move a press across a frame edge.
   const inputFrame = pressFrame - refFrame;
   const elapsedMs = t - (frame0 + frameToMs(refFrame, fps));
-
-  // A press past the timeout means the step was already missed, whatever the button.
-  if (inputFrame > lastAcceptedFrame(step, state.settings.timeoutFrames)) {
-    return finish(state, missedResult(state, index), 'missed');
-  }
-
   const timing = gradeFrames(step, inputFrame, elapsedMs, fps);
-  const base = {
+  const result: StepResult = {
     stepIndex: index,
     expected: [...step.buttons],
+    grade: timing.grade,
     press: ev,
     correctedTimestamp: t,
     elapsedMs,
@@ -275,15 +420,30 @@ function pressWhileRunning(state: AttemptState, ev: PressEvent, t: number): Atte
     deltaFrames: timing.deltaFrames,
     deltaMs: timing.deltaMs,
   };
+  return { result, pressFrame, inputFrame };
+}
+
+function pressWhileRunning(state: AttemptState, ev: PressEvent, t: number): AttemptState {
+  const index = state.results.length;
+  const step = stepAt(state, index);
+  if (isChord(step)) return chordPress(state, index, ev, t);
+  const { result, pressFrame, inputFrame } = timedPress(state, index, ev, t);
+
+  // A press past the timeout means the step was already missed, whatever the button.
+  if (inputFrame > lastAcceptedFrame(step, state.settings.timeoutFrames)) {
+    return finish(state, missedResult(state, index), 'missed');
+  }
 
   if (ev.button !== step.buttons[0]) {
     if (!state.settings.strict) return { ...state, ignoredPresses: [...state.ignoredPresses, ev] };
-    return finish(state, { ...base, grade: 'WRONG_BUTTON' }, 'wrongButton');
+    return finish(state, { ...result, grade: 'WRONG_BUTTON' }, 'wrongButton');
   }
 
-  const result: StepResult = { ...base, grade: timing.grade };
-  if (index === state.combo.steps.length - 1) return finish(state, result, 'completed');
-  return { ...state, results: [...state.results, result], lastInputFrame: pressFrame };
+  // With a direction check, the step stays open until the end of the press's frame.
+  if (hasDirectionCheck(step)) {
+    return { ...state, pendingCheck: { result, anchor: referenceFor(state, index).frame0, frame: pressFrame } };
+  }
+  return advance(state, result, pressFrame);
 }
 
 // --- chords (SPEC §3, "Chords") ----------------------------------------------
@@ -362,9 +522,13 @@ function resolveChord(state: AttemptState, t: number): AttemptState {
   return finish(state, chordResult(state, index, 'PARTIAL', chord.presses), 'partial');
 }
 
-/** Grades a complete chord on its last press (SPEC §3 Chords, rules 4–5 and 7). */
+/**
+ * Grades a complete chord on its last press (SPEC §3 Chords, rules 4–5 and 7). It closes at the
+ * end of the frame it completed on, which is also when its direction check runs (Directions, rule 8).
+ */
 function gradeChord(state: AttemptState, index: number, chord: PendingChord): AttemptState {
   const fps = state.combo.fps;
+  const step = stepAt(state, index);
   const last = chord.presses.at(-1);
   if (!last) throw new Error('Empty chord');
   const cleared: AttemptState = { ...state, chord: null };
@@ -379,20 +543,12 @@ function gradeChord(state: AttemptState, index: number, chord: PendingChord): At
       deltaFrames: 0,
       deltaMs: 0,
     };
-    const next: AttemptState = {
-      ...cleared,
-      phase: 'running',
-      frame0,
-      lastInputFrame: gridFrame(last.t, frame0, fps),
-      results: [result],
-    };
-    return state.combo.steps.length === 1 ? { ...next, phase: 'done', endedBy: 'completed' } : next;
+    return startRunning(cleared, withDirectionCheck(step, result, state.held), frame0, gridFrame(last.t, frame0, fps));
   }
 
-  const result = chordResult(state, index, null, chord.presses);
-  if (index === state.combo.steps.length - 1) return finish(cleared, result, 'completed');
+  const result = withDirectionCheck(step, chordResult(state, index, null, chord.presses), state.held);
   const { frame0 } = referenceFor(state, index);
-  return { ...cleared, results: [...state.results, result], lastInputFrame: gridFrame(last.t, frame0, fps) };
+  return advance(cleared, result, gridFrame(last.t, frame0, fps));
 }
 
 /**
@@ -446,17 +602,19 @@ function chordResult(
 
 /**
  * Advances time with no input: ends the attempt with MISSED once the awaited step's window
- * has passed, and closes a chord whose window or last frame has passed. `now` is a raw
+ * has passed, and closes a chord whose window or last frame has passed and a direction check
+ * whose frame has passed. `now` is a raw
  * performance.now() time. It is corrected with the largest latency offset, so nothing is
  * declared missed or closed while a press that would still count could arrive.
  */
 export function tick(state: AttemptState, now: number): AttemptState {
-  if (state.phase !== 'running' && !(state.phase === 'armed' && state.chord)) return state;
+  const pending = state.chord !== null || state.pendingCheck !== null;
+  if (state.phase !== 'running' && !(state.phase === 'armed' && pending)) return state;
   const maxOffset = Math.max(...Object.values(state.settings.latencyOffsetMs));
   const t = now - maxOffset;
-  // A chord being collected closes once it's due; the MISSED timer is paused while it's open.
-  const st = resolveChord(state, t);
-  if (st.phase !== 'running' || st.chord) return st;
+  // A chord or direction check closes once it's due; the MISSED timer is paused while one is open.
+  const st = resolveDue(state, t);
+  if (st.phase !== 'running' || st.chord || st.pendingCheck) return st;
   const index = st.results.length;
   const step = stepAt(st, index);
   const { frame0, refFrame } = referenceFor(st, index);
@@ -479,5 +637,29 @@ export function attemptResult(state: AttemptState): AttemptResult | null {
       state.endedBy === 'completed' &&
       state.results.length === state.combo.steps.length &&
       state.results.every((r) => r.grade === 'ON_TIME'),
+    positions: state.frame0 === null ? [] : positionsFrom(state.positionLog, state.frame0, state.combo.fps),
   };
+}
+
+/**
+ * The position at the end of frame 0, then one entry per frame whose ending position differs
+ * from the frame before (SPEC §4, `AttemptResult.positions`). Changes before frame 0 count
+ * toward frame 0. The log is in arrival order; a change whose corrected time falls on an earlier
+ * frame than the one before it (inputs from two sources with different latency offsets) counts
+ * on that later frame.
+ */
+function positionsFrom(log: readonly PositionLogEntry[], frame0: number, fps: number): PositionChange[] {
+  const out: PositionChange[] = [{ frame: 0, position: 5, timestamp: frame0 }];
+  for (const e of log) {
+    const last = out.at(-1) as PositionChange;
+    const frame = Math.max(gridFrame(e.t, frame0, fps), last.frame);
+    if (frame <= 0) {
+      out[0] = { ...last, position: e.position };
+      continue;
+    }
+    // A later change on the same frame replaces that frame's entry.
+    if (frame === last.frame) out.pop();
+    if (e.position !== (out.at(-1) as PositionChange).position) out.push({ frame, position: e.position, timestamp: e.t });
+  }
+  return out;
 }

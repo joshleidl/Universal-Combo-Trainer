@@ -13,6 +13,14 @@ export interface PressEvent {
   source: InputSource;
 }
 
+/** A release edge. Only direction releases matter to the engine (SPEC §3, "Directions"). */
+export interface ReleaseEvent {
+  button: ButtonId;
+  /** Milliseconds, same clock as performance.now() / KeyboardEvent.timeStamp. */
+  timestamp: number;
+  source: InputSource;
+}
+
 /** Direction IDs. They are never a step's button (SPEC §3). */
 export const DIRECTION_BUTTONS: readonly ButtonId[] = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
 
@@ -30,6 +38,12 @@ export type HeldPosition = Position | 5;
  * `atLeast`: every direction in it must be held, others may be too (anything on a plain step).
  */
 export type DirectionMatch = 'exact' | 'atLeast';
+
+/**
+ * Why a direction check failed: `missing` when the held position is a strict part of the wanted
+ * one (including nothing held), `wrong` otherwise.
+ */
+export type DirectionMistake = 'missing' | 'wrong';
 
 export type ChordWindowUnit = 'frames' | 'ms';
 
@@ -117,6 +131,22 @@ export interface StepResult {
   deltaFrames?: number;
   /** elapsedMs minus the start of the target frame (targetFrame * frameMs). */
   deltaMs?: number;
+  /**
+   * Set on every step that ran a direction check: the wanted position (5 for an exact plain
+   * step), the position held at the end of the graded press's frame, and how they were matched.
+   */
+  direction?: { wanted: HeldPosition; held: HeldPosition; match: DirectionMatch };
+  /** Set when the direction check failed; the grade is then PARTIAL (missing) or WRONG_BUTTON (wrong). */
+  directionMistake?: DirectionMistake;
+}
+
+/** The stick position from a frame's end on (SPEC §4, "Engine API: directions"). */
+export interface PositionChange {
+  /** Grid frame (frames since frame 0) whose ending position this is. */
+  frame: number;
+  position: HeldPosition;
+  /** Corrected time of the input that made the change (frame 0's timestamp for the first entry). */
+  timestamp: number;
 }
 
 export type AttemptPhase = 'idle' | 'armed' | 'running' | 'done';
@@ -131,4 +161,9 @@ export interface AttemptResult {
   endedBy: AttemptEnd;
   /** True when every step was graded ON_TIME. */
   success: boolean;
+  /**
+   * The position at the end of frame 0, then one entry for each frame whose ending position
+   * differs from the frame before. Empty when the attempt ended before it had a frame 0.
+   */
+  positions: PositionChange[];
 }
