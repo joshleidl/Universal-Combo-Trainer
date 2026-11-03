@@ -213,3 +213,51 @@ Proposal: [docs/proposals/2026-10-31-chords.md](docs/proposals/2026-10-31-chords
 - **Examples** (open question 6): a fourth example, "Example: chord link" (cr.MK, then LP+LK, then st.HP), is seeded for new browsers only. Existing users don't get it, since examples are only seeded into empty storage. This goes past SPEC §8 Layer 3's "2–3 example combos"; the example test now expects 3–4.
 - **Engine module:** `engine/chord.ts` holds the pure helpers (`isChord`, `insideChordWindow`, `chordGrade`, `missingButtons`); `attempt.ts` holds the chord state (`AttemptState.chord`) and exports `chordProgress` for the practice page.
 - **Branch:** `chords` was branched before the spec split, so `main` was merged into it at the start of this work.
+
+## Direction+button steps: spec (2026-11-02, session A)
+Proposal: [docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md](docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md). Its decisions table (section 1) is the record of the user's interview answers; SPEC §3 "Directions", §4, §7 and §8 have the rules. This entry records what session A added or settled on top of it.
+- **User's main answers** (proposal numbering): held, not fresh, directions (1B), checked at the end of the button's grid frame (2B); absolute `LEFT` / `RIGHT`, no facing; per-step exact / at least (4C), new direction steps default to exact, plain steps to at least; stray direction presses are never mistakes (3A); direction mistakes reuse `PARTIAL` (missing) and `WRONG_BUTTON` (wrong) and never end the attempt (6C, 7B); directions with chords allowed (8B); one stick position in numpad layout (10C); SOCD resolves to neutral (11A); single-direction steps become position steps (12B, later dropped: see "Position steps out of scope"); storage stays v1 with share code v3 (13A); build direction+button before frame snapshots (23A).
+- **Position step 1 in first-input mode** (asked in session A; superseded the same day, position steps are out of scope): a position released within frame 0 doesn't count (user's Option 1). The input that enters the position sets frame 0, and step 1 only counts if the position is still held at the end of frame 0; otherwise the attempt goes back to waiting. Matches every other position step and the frame snapshot rule that a sub-frame tap doesn't register.
+- **Position steps, gaps filled (simplest option; superseded the same day, position steps are out of scope):**
+  - Only frames after the frame the previous step landed on count, so a position step can't land on the previous step's frame (a relative target of 0 is impossible, the same cost chords and direction checks have). This also settles what "already held when the step starts" means: held at the end of the previous step's frame.
+  - Step 1 in countdown mode: frame 0 counts, compared with the position held when frame 0 starts.
+  - A button press while a position step is awaited is `WRONG_BUTTON` (strict ends, non-strict ignores), as a button press during a single-direction step was before. A button press on the frame a position step lands on is an extra press, like any other pending end-of-frame check.
+- **API names (open item 5)**, written into SPEC §4 "Engine API: directions" and **approved by the user on 2026-11-02**:
+  - `Position` (1–9 without 5) for steps, `HeldPosition` (adds 5, neutral) for what the stick reads. `StepResult.direction.wanted` is a `HeldPosition` so an exact plain step can record "wanted neutral" as 5.
+  - `press()` takes direction presses too (no separate direction-press call); new `release()` and `ReleaseEvent`; `arm(state, held?)` keeps the existing held set when `held` is left out, so quick restart from `done` keeps it.
+  - `StepResult.direction` is set only on steps that ran a check. The timeline tags only those steps' dots with the held position. The proposal said "each graded button dot"; the user chose this option (A) over tagging every dot (B, which needed a grey "not checked" tag style and the held position on every result) on 2026-11-02. The stick lane above still shows what was held on every frame.
+  - `AttemptResult.positions` entries carry the corrected timestamp of the input that made the change.
+  - `heldPosition(state)` for the live input display; `practiceRelease()` on the practice layer.
+- **Share code v3 layout (open item 5), not built:** drafted as `[buttons, target, early, late, label?, chordWindow?, direction?]`, with `direction = [position, 'e' | 'a']`, missing label `''` and missing chord window `null` when a later field is written, and position 5 with `'e'` for an exact plain step. Dropped the same day along with share links (below); kept here for when they come back.
+- **Examples:** SPEC §8 Layer 3's "2–3 example combos" now notes the later growth to 4 (chords) and 5 (this feature) instead of being contradicted.
+- **BACKLOG "Directions in chords"** is marked as specified and in progress; it gets struck through once the editor (session E) is done.
+
+## Phone width dropped (2026-11-02)
+- **User's call:** remove phone width support from the spec, the requirements and the code. The app is built and checked for desktop with a keyboard or controller only (SPEC §7).
+- **Removed:** the SPEC §7 "must be usable at phone width" rule, the README line, the `@media (max-width: 600px)` block in `src/style.css` (narrow practice step grid, single-column stats, tighter header nav, stacked Controls rows, smaller calibration pulse, chord tip margin), and a stale comment in `src/ui/controls.ts`. The NEXT_SESSION item to test the phone layout on hardware is gone.
+- **Kept:** the viewport meta tag in `index.html` and general wrapping rules (e.g. the header nav wraps), since they also help narrow desktop windows. Older entries (Layer 5 Part B "Mobile layout pass", the chords proposal's 375 px check) stay as history.
+
+## Share links dropped (2026-11-02)
+- **User's call** (direction+button session A): share-by-URL is dropped for now and will be added back later (BACKLOG, "Bring back share links"). This replaces the planned share code v3.
+- **When:** the code (`combo/share.ts`, the editor's "Copy share link" button, the `#share=` route and notices in `main.ts`, `tests/combo/share.test.ts`) is removed in direction+button session B, which was going to change it anyway. Until then the current build still has it.
+- **Effect:** links already sent (v1 and v2) stop opening once the code is removed. Combos saved in the browser aren't affected.
+
+## Position steps out of scope (2026-11-02)
+- **User's call** (direction+button session A, after reviewing the position-step gaps): position steps (a direction with no button, graded on the frame the stick enters it; proposal decision 21, 12B) are out of this feature. They can come back later (SPEC §9; BACKLOG "Position steps"). The proposal has an "Amendments" section recording the change.
+- **What this settles:** the position-step questions from session A (position step 1 released within frame 0, landing on the previous step's frame, countdown frame 0, button presses while one is awaited) no longer apply. The answers given are kept in BACKLOG "Position steps" for when the feature comes back.
+- **Single-direction steps stay as they are** (simplest option; superseded the same day by "Single-direction steps removed", below): a step whose only button is one direction (e.g. `['DOWN']`) is graded on that direction's press edge like a button, with no end-of-frame check, SOCD or held state. Storage needs no conversion. A button press while one is awaited is still `WRONG_BUTTON`. The one change, from decision 7: a press of a *different* direction while one is awaited is ignored instead of `WRONG_BUTTON`.
+- **API:** the approved `isPositionStep(step)` helper is dropped. Nothing else in the approved API changes.
+- **Gone from the plan:** the storage conversion of single-direction steps, proposal cases L1, L1e and L2, and the "single-direction steps become position steps" behavior changes (SOCD on a single-direction step, entering it by a release).
+
+## Single-direction steps removed (2026-11-02)
+- **User's call** (direction+button session A): steps whose only button is a direction (e.g. `['DOWN']`) are removed from the app, and existing combos are converted. Directions are now never a step's button; they only come back through `direction` on a button step (sessions B–E).
+- **Validation:** any direction in `buttons` is an error ("directions can't be a step's button (DOWN)"), alone or in a chord. This replaces the chord-only check.
+- **Conversion on load** (`dropDirectionSteps` in `storage/combos.ts`, simplest option):
+  - The step is dropped. In relative mode its `targetFrame` is added to the next kept step's (consecutive direction steps add up), so the following buttons keep their timing, assuming the direction landed on its target. In absolute mode nothing else changes.
+  - The removed step's tolerances and label are lost; the next step keeps its own tolerances.
+  - A combo made only of direction steps ends up empty, fails validation and is dropped.
+  - When anything changed, the original goes to `uct.combos.v1.backup` and storage is rewritten once (the existing damaged-data path), so a later build could still recover it.
+- **Editor:** button selects no longer offer directions (one list, `STEP_BUTTONS`, for single buttons and chords). The "+" button's "Directions can't be part of a chord" case is gone.
+- **Examples:** none of the shipped examples had a direction step, so they don't change.
+- **Share links:** v1 / v2 links containing a direction step no longer open (validation rejects them). Not converted, since share links are removed in session B.
+- **Until session C:** a direction press during a button step is still `WRONG_BUTTON` in strict mode (decision 7 lands with the engine work).

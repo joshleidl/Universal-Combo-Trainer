@@ -8,6 +8,7 @@ import {
   ComboStore,
   LAST_OPENED_KEY,
   memoryStorage,
+  dropDirectionSteps,
   parseCombo,
   validateForSave,
 } from '../../src/storage/combos';
@@ -247,5 +248,62 @@ describe('validateForSave / parseCombo', () => {
     expect(parseCombo({ ...sample(), startMode: 'later' })).toBeNull();
     expect(parseCombo({ ...sample(), steps: [{ button: 1, targetFrame: 0, tolEarly: 0, tolLate: 0 }] })).toBeNull();
     expect(parseCombo(sample())).toEqual(sample());
+  });
+});
+
+describe('single-direction steps (removed 2026-11-02)', () => {
+  const st = (button: string, targetFrame: number, label?: string) => ({
+    buttons: [button],
+    targetFrame,
+    tolEarly: 1,
+    tolLate: 1,
+    ...(label ? { label } : {}),
+  });
+
+  it('drops them; in relative mode the next step absorbs their targets', () => {
+    const steps = [st('LP', 0), st('DOWN', 3), st('RIGHT', 2), st('MK', 4), st('HP', 6)];
+    expect(dropDirectionSteps(steps, 'relative').map((s) => [s.buttons[0], s.targetFrame])).toEqual([
+      ['LP', 0],
+      ['MK', 9],
+      ['HP', 6],
+    ]);
+  });
+
+  it('keeps targets unchanged in absolute mode', () => {
+    const steps = [st('LP', 0), st('DOWN', 3), st('MK', 9)];
+    expect(dropDirectionSteps(steps, 'absolute').map((s) => [s.buttons[0], s.targetFrame])).toEqual([
+      ['LP', 0],
+      ['MK', 9],
+    ]);
+  });
+
+  it('handles a direction first step and a direction last step', () => {
+    const steps = [st('DOWN', 5), st('LP', 2), st('UP', 4)];
+    expect(dropDirectionSteps(steps, 'relative').map((s) => [s.buttons[0], s.targetFrame])).toEqual([['LP', 7]]);
+  });
+
+  it('converts saved combos on load, rewrites storage once and backs up the original', () => {
+    const storage = memoryStorage();
+    const old = { ...sample(), timingMode: 'relative', steps: [st('LP', 0, 'jab'), st('DOWN', 2), st('MK', 4, 'cr.MK')] };
+    const onlyDirections = { ...sample('Dash'), steps: [st('RIGHT', 0), st('RIGHT', 3)] };
+    const raw = JSON.stringify({
+      version: 1,
+      combos: [
+        { id: 'a', combo: old },
+        { id: 'b', combo: onlyDirections },
+        { id: 'c', combo: sample('Untouched') },
+      ],
+    });
+    storage.setItem(COMBOS_KEY, raw);
+    const list = emptyStore(storage).list();
+    expect(list.map((c) => c.id)).toEqual(['a', 'c']);
+    expect(list[0]?.combo.steps.map((s) => [s.buttons[0], s.targetFrame, s.label])).toEqual([
+      ['LP', 0, 'jab'],
+      ['MK', 6, 'cr.MK'],
+    ]);
+    expect(storage.getItem(COMBOS_BACKUP_KEY)).toBe(raw);
+    const rewritten = storage.getItem(COMBOS_KEY);
+    emptyStore(storage).list();
+    expect(storage.getItem(COMBOS_KEY)).toBe(rewritten);
   });
 });

@@ -347,13 +347,16 @@ describe('chord validation', () => {
   it('accepts chords with a window, and single steps without one', () => {
     expect(valid(chord(['LP', 'MP'], 0, frames(2)))).toEqual([]);
     expect(valid(chord(['LP', 'MP', 'HK'], 0, msWin(12.5)))).toEqual([]);
-    expect(valid(single('UP', 0))).toEqual([]);
   });
 
-  it('rejects empty, duplicate and direction buttons in a chord', () => {
+  it('rejects a direction as a step button, alone or in a chord', () => {
+    expect(valid(single('UP', 0))).toEqual(["step 1: directions can't be a step's button (UP)"]);
+    expect(valid(chord(['LP', 'DOWN'], 0, frames(1)))).toEqual(["step 1: directions can't be a step's button (DOWN)"]);
+  });
+
+  it('rejects empty and duplicate buttons in a chord', () => {
     expect(valid({ ...single('LP', 0), buttons: [] })).toEqual(['step 1: button is required']);
     expect(valid(chord(['LP', 'LP'], 0, frames(1)))).toEqual(['step 1: LP is in the chord twice']);
-    expect(valid(chord(['LP', 'DOWN'], 0, frames(1)))[0]).toMatch(/directions can't be part of a chord \(DOWN\)/);
   });
 
   it('requires a valid window on chords', () => {

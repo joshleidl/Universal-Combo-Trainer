@@ -1,6 +1,6 @@
 # Proposal: direction + button steps (e.g. →+MP, ↓+MK)
 
-**Status (2026-11-02):** interview finished, every decision answered. Open items 1, 2 and 6 were answered the same day (section 5). No code written. Next step is session A (section 6): copy the draft spec (section 3) into SPEC.md, and log the decisions in DECISIONS.md. Until then, SPEC §3 and §9 still say directions can't be part of a step with buttons.
+**Status (2026-11-02):** interview finished, every decision answered. Session A is done: section 3 is in SPEC.md (§3 "Directions", §4 "Engine API: directions" and "Saved data and share links", §7 "Directions in the UI", §8 build stages, §9), and the decisions are in DECISIONS.md ("Direction+button steps"). SPEC.md is now the source of truth; where it differs from section 3 below, SPEC wins. **The proposal was amended on 2026-11-02 (section 7):** share links and position steps were dropped. Next: session B.
 
 ## Context
 SPEC §3 only allows directions as single-direction steps, graded on the press edge. SPEC §9 lists "directions in chords" as out of scope, and BACKLOG ("Chord follow-ups") asks for them. This proposal adds steps that combine a stick position with a button or a button chord, e.g. →+MP (a command normal), ↓+MK (a crouching normal), ↘+HP, ←+LP+LK (a throw).
@@ -42,8 +42,8 @@ This changes the engine's `Step` type, grading, and engine API, so per CLAUDE.md
 | 17 | `MISSED` timer | Unchanged (settled by 1): holding a direction never starts or pauses it | — | — |
 | 18 | First-input start, direction+button step 1 | The button press is frame 0; the direction is checked at the end of frame 0 (settled by 1 + 2) | — | — |
 | 19 | Step shape | **One stick position** (10C): `direction` 1–9 in numpad layout, plus `directionMatch` | One value, like a stick; impossible combinations can't exist; groundwork for motions | Position 5 never stored (section 3.1) |
-| 20 | Storage and share links | **Convert on load, storage stays version 1; share code v3** (13A) | Same approach as chords (`button` → `buttons`) | A tab running the old build would strip the new fields on save (same risk chords accepted) |
-| 21 | Single-direction steps | **Position steps** (12B): graded on the frame the stick enters the position | One direction model; a game reads a new position, not a press; groundwork for dashes and motions | Old `buttons: ['DOWN']` loads as `direction: 2`, at least. The graded input may be a release (e.g. ↘ → ↓ by letting go of RIGHT) |
+| 20 | Storage and share links | **Convert on load, storage stays version 1; share code v3** (13A). *Amended: share links dropped, no v3 (section 7, A1)* | Same approach as chords (`button` → `buttons`) | A tab running the old build would strip the new fields on save (same risk chords accepted) |
+| 21 | Single-direction steps | **Position steps** (12B): graded on the frame the stick enters the position. *Amended: position steps out of scope; single-direction steps stay as today (section 7, A2)* | One direction model; a game reads a new position, not a press; groundwork for dashes and motions | Old `buttons: ['DOWN']` loads as `direction: 2`, at least. The graded input may be a release (e.g. ↘ → ↓ by letting go of RIGHT) |
 | 22 | Example combo | **Fix and add** (21C): "cr." steps in shipped examples become ↓ (at least); add "Example: command normal" | Examples mean what their labels say, like in a game | New browsers only; 5 examples (SPEC §8 says 2–3); the example test needs updating |
 | 23 | Editor picker | **Dropdown in the row; a 3×3 grid opens in a panel under the step** (15A + 15b-2) | The grid is laid out like the stick's gate; the row stays compact | Dropdown lists "↘ down-right", "• none" |
 | 24 | Notation | **Arrows** (14B): →+MP, ↓+MK, ↘+HP, ←+LP+LK | What games show in move lists and input displays | Symbol for "at least" not chosen yet (e.g. "↓*" or "any ↓") |
@@ -89,9 +89,9 @@ This changes the engine's `Step` type, grading, and engine API, so per CLAUDE.md
 | C3 | ←+LP+LK | LP 10, LK 11; ← pressed on 12 | nothing | `PARTIAL` (missing) |
 | C4 | ←+LP+LK | ← held; LP 10, HP 11 | — | chord `WRONG_BUTTON` (chord mistake wins; strict ends) |
 | D1 | stray → while step 1 ↓+MK awaited | lever rolls ↓ → ↘ | — | not a mistake |
-| L1 | position step ↓, at least, target 5 | → held; ↓ pressed on 5 (6 → 3) | — | `ON_TIME` on 5 |
-| L1e | position step ↓, exact | as L1 | — | still waiting (entered 3, not 2) |
-| L2 | position step ↓ | ↓ held since before the step | — | waits for leaving and re-entering ↓ |
+| L1 *(out of scope, A2)* | position step ↓, at least, target 5 | → held; ↓ pressed on 5 (6 → 3) | — | `ON_TIME` on 5 |
+| L1e *(out of scope, A2)* | position step ↓, exact | as L1 | — | still waiting (entered 3, not 2) |
+| L2 *(out of scope, A2)* | position step ↓ | ↓ held since before the step | — | waits for leaving and re-entering ↓ |
 | K1 | countdown, step 1 ↓+MK, target 0 | ↓ held from before restart; MK on frame 0 | ↓ | `ON_TIME` |
 | K2 | countdown, step 1 ↓+MK, target 0 | ↓ pressed during the countdown (doesn't restart it); MK on frame 0 | ↓ | `ON_TIME` |
 | F1 | step 2 →+MP, step 3 HP (relative target 0), strict | → held; MP at 170 ms, HP at 178 ms (both on frame 10) | — | step 2 `WRONG_BUTTON` (extra press), attempt ends |
@@ -100,6 +100,8 @@ This changes the engine's `Step` type, grading, and engine API, so per CLAUDE.md
 ---
 
 ## 3. Draft spec (to apply to SPEC.md in session A)
+
+*Amended 2026-11-02 (section 7): the position-step parts (3.1 "Without buttons", 3.2 "Position steps" and the position step 1 bullet, 3.4 "the graded input may be a release", 3.5 storage conversion, 3.7 position-step notation and editor text) and share code v3 (3.5) are dropped. They're left below as the record of the original draft; SPEC.md has the amended rules.*
 
 ### 3.1 §3 Combo definition: step fields
 Replace the `buttons` bullet and add two fields:
@@ -190,7 +192,7 @@ Validation: a step needs at least one button or a `direction`; `direction` is an
 ## 4. Behavior changes for existing combos
 - **Strict mode:** a direction press while a button step is awaited no longer ends the attempt (7).
 - **Countdowns:** a direction press no longer starts or restarts a countdown; only a button press does (section 3.6).
-- **Single-direction steps** become position steps (21). They grade the same in normal use, with two differences:
+- ~~**Single-direction steps** become position steps (21).~~ *Amended (A6): single-direction steps are removed, and saved combos drop them on load.* They grade the same in normal use, with two differences:
   - A DOWN press while UP is held no longer counts, because SOCD makes the position neutral.
   - Entering the position by a release (↘ → ↓ by letting go of RIGHT) now counts.
 - **Examples:** only new browsers get the fixed and new examples.
@@ -200,9 +202,10 @@ Validation: a step needs at least one button or a `direction`; `direction` is an
 1. ~~**Countdown restarts on direction presses.**~~ Answered 2026-11-02: only a button press starts or restarts a countdown; direction presses don't (section 3.6).
 2. ~~**A press on the same frame as a pending direction check.**~~ Answered 2026-11-02: the user OK'd the chord-style rule, an extra press (section 3.2, "Extra presses while a check is pending").
 3. **"At least" marker symbol** on arrows (session E).
-4. **Phone width:** the new UI isn't checked at phone width (user's scope call). SPEC §7 still requires it.
-5. **Exact API names and share tuple layout** (session A / B).
+4. ~~**Phone width:**~~ Answered 2026-11-02: phone width support is removed from the whole app, spec and code (SPEC §7; DECISIONS.md "Phone width dropped").
+5. ~~**Exact API names and share tuple layout.**~~ API names set in session A (SPEC §4 "Engine API: directions") and approved by the user on 2026-11-02. The share layout is moot: share links were dropped on 2026-11-02 (decision 20's share code v3 and section 3.5's share bullet no longer apply).
 6. ~~**Interpretation of 15.**~~ Confirmed 2026-11-02: a strict part of the wanted position (including nothing) is missing (`PARTIAL`); anything else is wrong (`WRONG_BUTTON`).
+9. ~~**Position step 1 in first-input mode, released within frame 0.**~~ Answered 2026-11-02 (session A), then made moot by A2: it doesn't count. The input that enters the position sets frame 0, but step 1 only counts if the position is still held at the end of frame 0; otherwise the attempt goes back to waiting (SPEC §3 "Directions", rule 10).
 7. **Debug page:** showing the resolved position wasn't decided; not part of this work unless asked.
 8. **Unchanged, by assumption:** Hear timing, the metronome, calibration and the input layer's events. The practice layer starts passing releases and the held set to the engine.
 
@@ -210,12 +213,12 @@ Validation: a step needs at least one button or a `direction`; `direction` is an
 One review stop per session. Each ends with `mise run test` and `mise run typecheck` passing. No phone-width checks.
 
 - **A. Spec:** apply section 3 to SPEC.md (§3, §7, §9), log the decisions in DECISIONS.md, update BACKLOG.md ("Directions in chords" done once built). Settle open item 5. No code.
-- **B. Types:** `direction` and `directionMatch` on `Step`, validation, storage conversion, share v3 (v1/v2 still open). Grading unchanged until C.
+- **B. Types:** `direction` and `directionMatch` on `Step`, validation, ~~storage conversion, share v3 (v1/v2 still open)~~ loading and saving the new fields, removing share links (A1, A2). Grading unchanged until C.
 - **C. Engine:**
   - Held state, `release`, and the held set at arm.
   - SOCD position, the end-of-frame check, exact / at least.
   - Grade replacement and continuing after a mistake; chords with a direction.
-  - Position steps; stray directions not mistakes.
+  - ~~Position steps;~~ stray directions not mistakes (A2).
   - `positions` history and `directionMistake`.
   - A table test covering section 2.
 - **D. Practice side:** pass releases and the held set through; only button presses start or restart a countdown; feedback text, stats, sounds, the timeline stick lane and tagged dots, the live input display.
@@ -223,6 +226,18 @@ One review stop per session. Each ends with `mise run test` and `mise run typech
 - **F. Hardware check:** keyboard (including SOCD with A+D) and the stick's hat lever; log the results in SPEC like the polling findings.
 
 The frame snapshot proposal (NEXT_SESSION.md) comes after this feature.
+
+## 7. Amendments
+The proposal was amended on 2026-11-02 during session A, at the user's request. The decisions table and draft spec above are kept as written, with notes where an amendment changes them. SPEC.md and DECISIONS.md have the amended rules.
+
+| # | Amendment | Changes | Reason |
+|---|---|---|---|
+| A1 | **Share links dropped** (user) | Decision 20 and section 3.5: no share code v3. Session B removes share links from the app (button, `#share=` route, `combo/share.ts`, tests). Links already sent stop opening. Added back later (BACKLOG, "Bring back share links") | User's call; it also removes the share v3 layout from open item 5 |
+| A2 | **Position steps out of scope** (user) | Decision 21 (12B), section 3.2 "Position steps" and the position step 1 bullet, cases L1, L1e, L2, section 4's single-direction bullet, and the session C item. Helper `isPositionStep` is dropped. Single-direction steps were first kept as they were, then removed (A6). Added back later (BACKLOG, "Position steps") | User's call: not needed for direction+button steps. Makes open item 9 and the session A position-step questions moot |
+| A3 | **Phone width removed from the whole app** (user) | Open item 4: SPEC §7's phone-width rule, the README line and the phone CSS are removed, not just skipped for this feature | User's call |
+| A4 | **Timeline tags only checked steps** (user, Option A) | Section 3.7 "each graded button dot is tagged": only dots of steps that ran a direction check are tagged | Tags mean "checked here"; the stick lane shows the rest |
+| A5 | **Engine API approved** (user) | Open item 5: the names in SPEC §4 "Engine API: directions" | — |
+| A6 | **Single-direction steps removed** (user) | Steps whose only button is a direction (`['DOWN']`) are gone: validation rejects any direction in `buttons`, the editor no longer offers them, and saved combos drop them on load (relative targets carried to the next step; the original is backed up). Done in session A, before session B | With position steps out of scope, a direction only belongs on a button step |
 
 ## Related
 - SPEC §9 "Frame snapshots" and the follow-ups added on 2026-11-02.

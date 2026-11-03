@@ -37,8 +37,8 @@ export interface EditorSession {
 
 const FPS_PRESETS = [30, 60, 120];
 
-/** Buttons a chord can use: everything but directions (SPEC §3). */
-const CHORD_BUTTONS = BUTTON_IDS.filter((b) => !DIRECTION_BUTTONS.includes(b));
+/** Buttons a step can use: everything but directions, which are never a step's button (SPEC §3). */
+const STEP_BUTTONS = BUTTON_IDS.filter((b) => !DIRECTION_BUTTONS.includes(b));
 
 /** Short warning shown next to the chord window, per unit. The diagram explains both. */
 const CHORD_WARNINGS: Record<ChordWindowUnit, string> = {
@@ -161,7 +161,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
 
     // One select per button; a chord has two or more, each with a ✕ to remove it.
     const buttonSelects = step.buttons.map((current, slot) => {
-      const choices = chord ? CHORD_BUTTONS : BUTTON_IDS;
+      const choices = STEP_BUTTONS;
       const select = el(
         'select',
         { ariaLabel: chord ? `Step ${n} button ${slot + 1}` : `Step ${n} button` },
@@ -197,7 +197,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     });
     addButtonBtn.addEventListener('click', () => {
       const current = session.draft.steps[index];
-      const extra = current && nextChordButton(current, CHORD_BUTTONS);
+      const extra = current && nextChordButton(current, STEP_BUTTONS);
       if (!extra) return;
       setDraft(addChordButton(session.draft, index, extra));
       rebuildSteps();
@@ -373,15 +373,11 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       if (!step) return;
       const startsAttempt = i === 0 && firstInputStart;
       for (const input of [row.targetInput, row.earlyInput, row.lateInput]) input.disabled = startsAttempt;
-      const lone = step.buttons.length === 1 ? step.buttons[0] : undefined;
-      const isDirection = lone !== undefined && DIRECTION_BUTTONS.includes(lone);
-      const free = nextChordButton(step, CHORD_BUTTONS) !== null;
-      row.addButtonBtn.disabled = isDirection || !free;
-      row.addButtonBtn.title = isDirection
-        ? 'Directions can’t be part of a chord'
-        : free
-          ? 'Add a button pressed together with this one (a chord)'
-          : 'Every button is already in this chord';
+      const free = nextChordButton(step, STEP_BUTTONS) !== null;
+      row.addButtonBtn.disabled = !free;
+      row.addButtonBtn.title = free
+        ? 'Add a button pressed together with this one (a chord)'
+        : 'Every button is already in this chord';
       row.upBtn.disabled = i === 0;
       row.downBtn.disabled = i === d.steps.length - 1;
       row.windowText.textContent = startsAttempt

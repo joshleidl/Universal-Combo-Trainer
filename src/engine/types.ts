@@ -13,7 +13,7 @@ export interface PressEvent {
   source: InputSource;
 }
 
-/** Directions can't be part of a chord (yet). */
+/** Direction IDs. They are never a step's button (SPEC §3). */
 export const DIRECTION_BUTTONS: readonly ButtonId[] = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
 
 export type ChordWindowUnit = 'frames' | 'ms';

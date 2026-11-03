@@ -81,9 +81,10 @@ function buttonErrors(s: Step, n: number): string[] {
   const errors: string[] = [];
   const twice = s.buttons.find((b, j) => s.buttons.indexOf(b) !== j);
   if (twice !== undefined) errors.push(`step ${n}: ${twice} is in the chord twice`);
+  // Directions are never a step's button (single-direction steps were removed; DECISIONS.md).
+  const dirs = s.buttons.filter((b) => DIRECTION_BUTTONS.includes(b));
+  if (dirs.length > 0) errors.push(`step ${n}: directions can't be a step's button (${dirs.join(', ')})`);
   if (s.buttons.length > 1) {
-    const dirs = s.buttons.filter((b) => DIRECTION_BUTTONS.includes(b));
-    if (dirs.length > 0) errors.push(`step ${n}: directions can't be part of a chord (${dirs.join(', ')})`);
     const w = s.chordWindow;
     if (!w) errors.push(`step ${n}: chordWindow is required for a chord`);
     else if (w.unit === 'frames') {

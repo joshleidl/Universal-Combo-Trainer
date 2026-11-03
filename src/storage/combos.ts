@@ -4,7 +4,7 @@
 import { cloneCombo } from '../combo/edit';
 import { EXAMPLE_COMBOS, type ExampleCombo } from '../combo/examples';
 import { validateCombo } from '../engine/attempt';
-import type { Combo, Step } from '../engine/types';
+import { DIRECTION_BUTTONS, type Combo, type Step, type TimingMode } from '../engine/types';
 
 /** The subset of the Web Storage API this module uses. */
 export interface StorageLike {
@@ -177,6 +177,10 @@ function parseStored(raw: string): { combos: SavedCombo[]; clean: boolean } {
       clean = false;
       continue;
     }
+    // A combo that lost single-direction steps is rewritten in its converted form.
+    if (isRecord(entry) && isRecord(entry.combo) && Array.isArray(entry.combo.steps)) {
+      if (entry.combo.steps.length !== combo.steps.length) clean = false;
+    }
     seen.add(id);
     combos.push({ id, combo });
   }
@@ -189,14 +193,36 @@ export function parseCombo(v: unknown): Combo | null {
   if (typeof v.fps !== 'number') return null;
   if (v.timingMode !== 'relative' && v.timingMode !== 'absolute') return null;
   if (v.startMode !== 'firstInput' && v.startMode !== 'countdown') return null;
-  const steps: Step[] = [];
+  const parsed: Step[] = [];
   for (const s of v.steps) {
     const step = parseStep(s);
     if (!step) return null;
-    steps.push(step);
+    parsed.push(step);
   }
+  const steps = dropDirectionSteps(parsed, v.timingMode);
   const combo: Combo = { name: v.name, steps, fps: v.fps, timingMode: v.timingMode, startMode: v.startMode };
   return validateForSave(combo).length === 0 ? combo : null;
+}
+
+/**
+ * Removes single-direction steps (a step whose only button is a direction, e.g. `['DOWN']`),
+ * which were removed from the app on 2026-11-02 (DECISIONS.md). In relative mode the next kept
+ * step's target absorbs the removed steps' targets, so the rest of the combo keeps its timing.
+ * A combo made only of direction steps ends up empty and fails validation.
+ */
+export function dropDirectionSteps(steps: readonly Step[], timingMode: TimingMode): Step[] {
+  const kept: Step[] = [];
+  let carry = 0;
+  for (const s of steps) {
+    const only = s.buttons.length === 1 ? s.buttons[0] : undefined;
+    if (only !== undefined && DIRECTION_BUTTONS.includes(only)) {
+      if (timingMode === 'relative') carry += s.targetFrame;
+      continue;
+    }
+    kept.push(carry > 0 ? { ...s, targetFrame: s.targetFrame + carry } : s);
+    carry = 0;
+  }
+  return kept;
 }
 
 function parseStep(v: unknown): Step | null {
