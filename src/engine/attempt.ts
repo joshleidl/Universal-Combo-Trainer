@@ -67,6 +67,7 @@ export function validateCombo(combo: Combo): string[] {
   if (combo.steps.length === 0) errors.push('combo must have at least one step');
   combo.steps.forEach((s, i) => {
     errors.push(...buttonErrors(s, i + 1));
+    errors.push(...directionErrors(s, i + 1));
     if (!isNonNegInt(s.targetFrame)) errors.push(`step ${i + 1}: targetFrame must be an integer ≥ 0`);
     if (!isNonNegInt(s.tolEarly)) errors.push(`step ${i + 1}: tolEarly must be an integer ≥ 0`);
     if (!isNonNegInt(s.tolLate)) errors.push(`step ${i + 1}: tolLate must be an integer ≥ 0`);
@@ -94,6 +95,19 @@ function buttonErrors(s: Step, n: number): string[] {
     } else {
       errors.push(`step ${n}: chordWindow unit must be frames or ms`);
     }
+  }
+  return errors;
+}
+
+const POSITIONS: readonly number[] = [1, 2, 3, 4, 6, 7, 8, 9];
+
+function directionErrors(s: Step, n: number): string[] {
+  const errors: string[] = [];
+  if (s.direction !== undefined && !POSITIONS.includes(s.direction)) {
+    errors.push(`step ${n}: direction must be a numpad position 1–9 other than 5`);
+  }
+  if (s.directionMatch !== undefined && s.directionMatch !== 'exact' && s.directionMatch !== 'atLeast') {
+    errors.push(`step ${n}: directionMatch must be exact or atLeast`);
   }
   return errors;
 }

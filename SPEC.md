@@ -140,7 +140,6 @@ src/
   combo/         # pure combo-editing helpers + shipped examples; no DOM; unit tested
     edit.ts
     examples.ts
-    share.ts       combo ↔ share-link code (dropped 2026-11-02; removed in direction+button session B)
   calibration/   # pure latency-calibration math; no DOM; unit tested
     calibration.ts beat schedule, tap matching, median offset per source
   practice/      # pure practice-session logic on top of the engine; no DOM; unit tested
@@ -155,7 +154,7 @@ src/
     combos.ts      save/load via localStorage (storage injected, so it's testable in Node)
     mapping.ts     saved input mapping
     settings.ts    saved app settings (strict mode, sound, latency offsets)
-  main.ts        page shell + hash routing (#practice, #controls, #calibrate, #debug; #share=… goes with share links)
+  main.ts        page shell + hash routing (#practice, #controls, #calibrate, #debug)
   style.css      all app styles, light and dark
 scripts/
   backup-transcript.mjs        session transcript backup (§10)
@@ -200,7 +199,7 @@ Additions for "Directions" (§3), approved by the user on 2026-11-02. `Grade` an
 ### Saved data
 - **Storage** stays `uct.combos.v1`. A step without `direction` or `directionMatch` is a plain at-least step, so old steps load as they were.
 - **Single-direction steps removed (2026-11-02):** loading drops any step whose only button is a direction (e.g. `['DOWN']`). In relative mode the next kept step's `targetFrame` absorbs the removed steps' targets, so the rest of the combo keeps its timing; in absolute mode targets don't change. Tolerances and labels of removed steps are lost. A combo made only of direction steps is dropped. When anything was converted or dropped, the original data goes to the backup key (`uct.combos.v1.backup`) and storage is rewritten once.
-- **Share links are dropped** (2026-11-02). There is no share code v3. When share links come back (BACKLOG), their format has to carry `direction` and `directionMatch`.
+- **Share links are dropped** (2026-11-02; code removed in direction+button session B). There is no share code v3. When share links come back (BACKLOG), their format has to carry `direction` and `directionMatch`.
 
 ## 5. Input sources
 

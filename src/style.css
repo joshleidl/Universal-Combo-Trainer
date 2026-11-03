@@ -175,13 +175,6 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
-.notice {
-  background: var(--current-bg);
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin: 0 0 12px;
-}
-
 /* App-wide "press a button to wake your controller" banner. */
 .pad-banner {
   display: flex;

@@ -7,9 +7,7 @@ import { renderCalibratePage } from './ui/calibrate';
 import { renderControlsPage, type MappingHolder } from './ui/controls';
 import { renderDebugPage } from './ui/debug';
 import { el } from './ui/dom';
-import { decodeCombo, shareCodeFromHash } from './combo/share';
-import { cloneCombo } from './combo/edit';
-import { initialSession, isDirty, renderEditorPage } from './ui/editor';
+import { initialSession, renderEditorPage } from './ui/editor';
 import { createPadBanner } from './ui/padBanner';
 import { newPracticeMemory, renderPracticePage, type SettingsHolder } from './ui/practice';
 
@@ -88,28 +86,7 @@ if (app) {
   );
 
   let cleanup: (() => void) | null = null;
-  /** Opens a `#share=` link in the editor as a new, unsaved combo, then clears it from the URL. */
-  const openShareLink = () => {
-    const code = shareCodeFromHash(location.hash);
-    if (code === null) return;
-    history.replaceState(null, '', `${location.pathname}${location.search}#`);
-    const combo = decodeCombo(code);
-    if (!combo) {
-      session.notice = 'That share link is damaged or incomplete, so nothing was opened.';
-      return;
-    }
-    const replace =
-      !isDirty(session) ||
-      window.confirm(`Open the shared combo "${combo.name}"? Unsaved changes to "${session.draft.name || 'this combo'}" will be lost.`);
-    if (!replace) return;
-    session.id = null;
-    session.baseline = combo;
-    session.draft = cloneCombo(combo);
-    session.notice = `Opened the shared combo "${combo.name}". It isn’t saved yet: press Save to keep it.`;
-  };
-
   const show = () => {
-    openShareLink();
     const route = (Object.keys(routes) as Route[]).find((r) => r !== 'editor' && routes[r].hash === location.hash) ?? 'editor';
     cleanup?.();
     cleanup = routes[route].render(page);

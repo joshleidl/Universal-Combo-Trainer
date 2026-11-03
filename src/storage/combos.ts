@@ -4,7 +4,7 @@
 import { cloneCombo } from '../combo/edit';
 import { EXAMPLE_COMBOS, type ExampleCombo } from '../combo/examples';
 import { validateCombo } from '../engine/attempt';
-import { DIRECTION_BUTTONS, type Combo, type Step, type TimingMode } from '../engine/types';
+import { DIRECTION_BUTTONS, type Combo, type Position, type Step, type TimingMode } from '../engine/types';
 
 /** The subset of the Web Storage API this module uses. */
 export interface StorageLike {
@@ -240,6 +240,15 @@ function parseStep(v: unknown): Step | null {
     const w = v.chordWindow;
     if (!isRecord(w) || typeof w.size !== 'number' || (w.unit !== 'frames' && w.unit !== 'ms')) return null;
     step.chordWindow = { size: w.size, unit: w.unit };
+  }
+  // Direction fields are kept only if well formed; a step without them is a plain at-least step.
+  if (v.direction !== undefined) {
+    if (typeof v.direction !== 'number') return null;
+    step.direction = v.direction as Position;
+  }
+  if (v.directionMatch !== undefined) {
+    if (v.directionMatch !== 'exact' && v.directionMatch !== 'atLeast') return null;
+    step.directionMatch = v.directionMatch;
   }
   return step;
 }

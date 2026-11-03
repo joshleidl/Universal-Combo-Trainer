@@ -16,6 +16,21 @@ export interface PressEvent {
 /** Direction IDs. They are never a step's button (SPEC §3). */
 export const DIRECTION_BUTTONS: readonly ButtonId[] = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
 
+/**
+ * A stick position in numpad layout: 1 ↙, 2 ↓, 3 ↘, 4 ←, 6 →, 7 ↖, 8 ↑, 9 ↗ (SPEC §3,
+ * "Directions"). This is what a step stores; neutral (5) never is.
+ */
+export type Position = 1 | 2 | 3 | 4 | 6 | 7 | 8 | 9;
+
+/** What the stick can read: a Position, or 5 for neutral. */
+export type HeldPosition = Position | 5;
+
+/**
+ * `exact`: the held position must be exactly the step's direction (neutral on a plain step).
+ * `atLeast`: every direction in it must be held, others may be too (anything on a plain step).
+ */
+export type DirectionMatch = 'exact' | 'atLeast';
+
 export type ChordWindowUnit = 'frames' | 'ms';
 
 /** How far apart a chord's presses may be: grid frames (integer) or corrected ms. */
@@ -36,6 +51,10 @@ export interface Step {
   label?: string;
   /** Required for chords (2+ buttons); ignored on single-button steps. */
   chordWindow?: ChordWindow;
+  /** Stick position held when the button (or the chord's last button) lands. */
+  direction?: Position;
+  /** How `direction` is matched. Absent means `atLeast`. */
+  directionMatch?: DirectionMatch;
 }
 
 export type TimingMode = 'relative' | 'absolute';

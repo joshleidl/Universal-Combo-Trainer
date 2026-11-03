@@ -107,7 +107,10 @@ export function nextChordButton(step: Step, choices: readonly ButtonId[]): Butto
   return choices.find((b) => !step.buttons.includes(b)) ?? null;
 }
 
-/** True when two combos have the same content (key order and missing labels don't matter). */
+/**
+ * True when two combos have the same content (key order, missing labels and a missing
+ * directionMatch, which means atLeast, don't matter).
+ */
 export function combosEqual(a: Combo, b: Combo): boolean {
   return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
@@ -125,6 +128,9 @@ function canonical(c: Combo): unknown {
       s.tolLate,
       s.label ?? '',
       s.buttons.length > 1 && s.chordWindow ? [s.chordWindow.size, s.chordWindow.unit] : null,
+      s.direction ?? null,
+      // A step without a match is at least (SPEC §3).
+      s.directionMatch ?? 'atLeast',
     ]),
   ];
 }

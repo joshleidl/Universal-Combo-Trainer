@@ -12,7 +12,6 @@ import {
   setStepButton,
   updateStep,
 } from '../../src/combo/edit';
-import { decodeCombo, encodeCombo } from '../../src/combo/share';
 import type { Combo, Step } from '../../src/engine/types';
 import { ComboStore, COMBOS_KEY, memoryStorage, parseCombo } from '../../src/storage/combos';
 
@@ -26,7 +25,6 @@ const chordStep: Step = {
   label: 'throw',
 };
 const combo = (steps: Step[]): Combo => ({ ...newCombo('c'), steps });
-const json = (o: unknown) => btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 describe('chord editing helpers', () => {
   it('adding a button makes a chord with the default window', () => {
@@ -119,30 +117,5 @@ describe('saved combos with chords', () => {
     expect(parseCombo({ ...base, steps: [{ ...single('LP'), buttons: ['LP', 'MP'] }] })).toBeNull();
     expect(parseCombo({ ...base, steps: [{ ...chordStep, chordWindow: { size: 2, unit: 'beats' } }] })).toBeNull();
     expect(parseCombo({ ...base, steps: [{ ...chordStep, buttons: ['LP', 3] }] })).toBeNull();
-  });
-});
-
-describe('share links with chords', () => {
-  it('round-trips chords in both units (v2)', () => {
-    const { label: _label, ...unlabelled } = chordStep;
-    const c: Combo = combo([single('HK'), chordStep, { ...unlabelled, chordWindow: { size: 12.5, unit: 'ms' } }]);
-    const code = encodeCombo(c);
-    expect(JSON.parse(atob(code.replace(/-/g, '+').replace(/_/g, '/'))).v).toBe(2);
-    expect(decodeCombo(code)).toEqual(c);
-  });
-
-  it('still opens v1 links', () => {
-    const v1 = { v: 1, n: 'old', f: 60, t: 'r', s: 'f', p: [['LP', 0, 0, 0, 'jab'], ['MP', 3, 1, 1]] };
-    expect(decodeCombo(json(v1))?.steps).toEqual([{ ...single('LP'), label: 'jab' }, { ...single('MP', 3), tolEarly: 1, tolLate: 1 }]);
-  });
-
-  it('rejects bad v2 rows', () => {
-    const ok = { v: 2, n: 'x', f: 60, t: 'r', s: 'f', p: [[['LP', 'MP'], 0, 0, 0, '', [2, 'f']]] };
-    expect(decodeCombo(json(ok))).not.toBeNull();
-    expect(decodeCombo(json({ ...ok, p: [['LP', 0, 0, 0]] }))).toBeNull(); // v2 needs a list
-    expect(decodeCombo(json({ ...ok, p: [[['LP', 'MP'], 0, 0, 0]] }))).toBeNull(); // chord without a window
-    expect(decodeCombo(json({ ...ok, p: [[['LP', 'MP'], 0, 0, 0, '', [2, 'x']]] }))).toBeNull();
-    expect(decodeCombo(json({ ...ok, p: [[['LP', 'MP'], 0, 0, 0, '', [2]]] }))).toBeNull();
-    expect(decodeCombo(json({ ...ok, p: [[['LP', 'UP'], 0, 0, 0, '', [2, 'f']]] }))).toBeNull(); // engine validation
   });
 });
