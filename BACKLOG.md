@@ -40,6 +40,6 @@ Requested features and known bugs. Anything that changes the tech stack, grading
   - This changes SPEC §2 and §4, so a spec update comes first ([CLAUDE.md](CLAUDE.md)).
 - **Chord follow-ups** (from the chords proposal, 2026-10-31):
   - **Hardware check:** practice chords on keyboard and the stick, tune the default chord window (2 frames for now), and log the results in SPEC like the polling findings.
-  - **Directions in chords** (e.g. DOWN+LK as one step), including rejecting impossible ones like LEFT+RIGHT. Specified 2026-11-02 as direction+button steps (SPEC §3 "Directions", build stages in SPEC §8); being built on branch `dir-plus-button-inputs`. Strike this through once session E is done.
+  - ~~**Directions in chords** (e.g. DOWN+LK as one step), including rejecting impossible ones like LEFT+RIGHT.~~ Done 2026-11-02 as direction+button steps (SPEC §3 "Directions"): a step's direction is set with the editor's direction field (session E), so an impossible LEFT+RIGHT can't be built. Branch `dir-plus-button-inputs`; the hardware check is session F.
   - **Chord gap readout on the debug page:** show how far apart near-simultaneous presses land, to help pick a window.
   - **Per-game chord presets** (e.g. a game's known chord leniency).

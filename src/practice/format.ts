@@ -2,7 +2,7 @@
 
 import { chordGrade } from '../engine/chord';
 import { positionDirections } from '../engine/direction';
-import type { AttemptResult, ButtonId, ChordPress, Grade, HeldPosition, PressTiming, Step, StepResult } from '../engine/types';
+import type { AttemptResult, ButtonId, ChordPress, DirectionMatch, Grade, HeldPosition, PressTiming, Step, StepResult } from '../engine/types';
 import type { ResultKind } from './stats';
 
 const MINUS = '−';
@@ -43,14 +43,58 @@ export function positionArrow(p: HeldPosition): string {
   return ARROWS[p];
 }
 
+const POSITION_NAMES: Readonly<Record<HeldPosition, string>> = {
+  1: 'down-left',
+  2: 'down',
+  3: 'down-right',
+  4: 'left',
+  5: 'none',
+  6: 'right',
+  7: 'up-left',
+  8: 'up',
+  9: 'up-right',
+};
+
+/** "↘ down-right" for 3, "• none" for neutral: the editor's direction choices. */
+export function positionChoiceText(p: HeldPosition): string {
+  return `${ARROWS[p]} ${POSITION_NAMES[p]}`;
+}
+
+type NotationStep = Pick<Step, 'buttons' | 'direction' | 'directionMatch'>;
+
 /**
- * A step in arrow notation: "→+MP", "←+LP+LK", "HP (neutral)" for an exact plain step, plain
- * "MP" otherwise. The "at least" marker comes with the editor (direction+button session E).
+ * A step's notation in pieces, so the page can color the direction by how it must match (SPEC
+ * §7: exact and at-least directions differ by color, not by a symbol). `match` is the step's
+ * directionMatch, at least when it's missing. `neutral` marks an exact plain step.
  */
-export function stepNotation(step: Pick<Step, 'buttons' | 'direction' | 'directionMatch'>): string {
+export interface StepNotationParts {
+  direction?: { arrow: string; match: DirectionMatch };
+  buttons: string;
+  neutral: boolean;
+}
+
+export function stepNotationParts(step: NotationStep): StepNotationParts {
   const buttons = buttonsName(step.buttons);
-  if (step.direction !== undefined) return `${positionArrow(step.direction)}+${buttons}`;
-  return step.directionMatch === 'exact' ? `${buttons} (neutral)` : buttons;
+  if (step.direction !== undefined) {
+    return { direction: { arrow: positionArrow(step.direction), match: step.directionMatch ?? 'atLeast' }, buttons, neutral: false };
+  }
+  return { buttons, neutral: step.directionMatch === 'exact' };
+}
+
+/**
+ * A step in arrow notation as plain text: "→+MP", "←+LP+LK", "HP (neutral)" for an exact plain
+ * step, plain "MP" otherwise. Exact and at-least directions read the same here; the page tells
+ * them apart by color (`stepNotationParts`).
+ */
+export function stepNotation(step: NotationStep): string {
+  const p = stepNotationParts(step);
+  if (p.direction) return `${p.direction.arrow}+${p.buttons}`;
+  return p.neutral ? `${p.buttons} (neutral)` : p.buttons;
+}
+
+/** "exactly ↓" / "at least ↓": what a direction's color means, for titles and screen readers. */
+export function directionMatchText(arrow: string, match: DirectionMatch): string {
+  return match === 'exact' ? `exactly ${arrow}` : `at least ${arrow}`;
 }
 
 /** How one chord press landed: "3f early", "on time", "on time (+1f)", "2f late". */

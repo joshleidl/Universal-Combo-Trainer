@@ -131,6 +131,7 @@ src/
     wake.ts        "wake your controller" banner state (pure)
   ui/            # DOM rendering only; reads engine state, never owns timing
     editor.ts      combo builder
+    notation.ts    step notation on the page (colored direction arrows)
     practice.ts    run attempts, live feedback, last-attempt timeline, session stats
     controls.ts    Controls page: remap keys and pad controls
     calibrate.ts   latency calibration screen
@@ -255,7 +256,7 @@ Findings so far:
 - **Desktop only:** the app is built and checked for desktop with a keyboard or controller. Phone width isn't supported (dropped 2026-11-02, see DECISIONS.md).
 
 ### Directions in the UI
-- **Notation:** arrows, e.g. →+MP, ↓+MK, ↘+HP, ←+LP+LK. A plain step set to exact shows "(neutral)". "At least" gets a small marker (symbol chosen in session E).
+- **Notation:** arrows (↙ ↓ ↘ ← → ↖ ↑ ↗, "•" for neutral), e.g. →+MP, ↓+MK, ↘+HP, ←+LP+LK. A plain step set to exact shows "(neutral)". Exact and at-least directions are told apart by **color, not a symbol** (user's call, session E): the arrow is blue when exact, orange when at least, and "(neutral)" is blue (exact). Blue vs orange was picked to stay distinct with color blindness, and each color keeps at least 4.5:1 contrast on every card background in light and dark themes. Hovering an arrow says "exactly ↓" / "at least ↓", and screen readers read the same. A plain at-least step has no arrow and no color. The practice page (step cards, status line, timeline lane names, stats rows) and the editor share this notation (`practice/format.ts`, drawn by `ui/notation.ts`).
 - **Editor:** each step row has a direction dropdown ("• none", "↘ down-right", …). Opening it (or a button beside it) shows a 3×3 grid in a panel under the step, laid out like a stick gate; picking there sets the dropdown. An exact / at-least toggle sits next to it ("neutral required" / "any direction" on plain steps). Button selects don't offer directions (removed 2026-11-02 with single-direction steps). No new hint or warning text.
 - **Practice page:** a live input display (stick gate and pressed buttons), always shown, reading held state from the practice layer. It shows input without judging it.
 - **Feedback text:** the usual timing text, then a direction note on a mistake: "On time (+5.2 ms) · Direction: ↘, wanted → exactly". The note says "wanted → exactly" when the step is exact and the held position contains the wanted one, "wanted any ↓" for at least, "wanted neutral" for exact plain steps, and "none" when nothing is held.
@@ -312,7 +313,7 @@ Built from [docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md](docs/propo
   - `positions` history and `directionMistake`.
   - A table test covering the proposal's worked examples (section 2), except the position-step cases L1, L1e and L2.
 - **D. Practice side:** pass releases and the held set through; only button presses start or restart a countdown; feedback text, stats, sounds, the timeline stick lane and tagged dots, the live input display.
-- **E. Editor and examples:** dropdown and grid panel, toggle, arrow notation and the "at least" marker, examples (fix "cr." steps to ↓ at least, add "Example: command normal").
+- **E. Editor and examples:** dropdown and grid panel, toggle, arrow notation with exact / at-least colors (a symbol marker was planned; the user chose colors), examples (fix "cr." steps to ↓ at least, add "Example: command normal").
 - **F. Hardware check:** keyboard (including SOCD with A+D) and the stick's hat lever; log the results in SPEC like the polling findings.
 
 **Done when:** every in-scope case in the proposal's section 2 passes as a test, and direction+button steps can be built, saved, practiced and reviewed on the timeline with a keyboard or controller.

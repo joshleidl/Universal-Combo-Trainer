@@ -47,7 +47,6 @@ import {
   rulerStep,
   emptyStepStats,
   shownAttempt,
-  stepNotation,
   summarizeStep,
   waitingToStart,
   type Countdown,
@@ -57,6 +56,7 @@ import {
 import type { ScheduledSound, SoundPlayer } from '../audio/sounds';
 import type { AppSettings } from '../storage/settings';
 import { el } from './dom';
+import { notationNodes } from './notation';
 import type { EditorSession } from './editor';
 
 /** The app's saved settings, shared by every page. */
@@ -253,29 +253,29 @@ export function renderPracticePage(
     const a = state.attempt;
     const next = currentStepIndex(a);
     const nextStep = next !== null ? combo.steps[next] : undefined;
-    let text: string;
+    let text: (Node | string)[];
     let cls = '';
     const names = restartNames.join(' / ');
     const firstStep = combo.steps[0];
-    const goTarget = firstStep ? `${stepName(firstStep)} on frame ${firstStep.targetFrame} after Go` : '';
+    const goTarget = firstStep ? [...stepName(firstStep), ` on frame ${firstStep.targetFrame} after Go`] : [];
     if (a.phase === 'done') {
       const result = attemptResult(a);
       const skip = !isCountdown && names ? `; ${names} skips it` : '';
-      text = `${result ? describeAttempt(result) : 'Done.'} Next attempt after the countdown. Pressing a button restarts the countdown${skip}.`;
+      text = [`${result ? describeAttempt(result) : 'Done.'} Next attempt after the countdown. Pressing a button restarts the countdown${skip}.`];
       cls = result?.success ? 'success' : 'fail';
     } else if (state.countdown !== null) {
       // Countdown mode before Go (the attempt is already live during the last beat).
-      text = `Get ready: press ${goTarget}. Pressing a button before the last beat restarts the countdown.`;
+      text = ['Get ready: press ', ...goTarget, '. Pressing a button before the last beat restarts the countdown.'];
     } else if (waitingToStart(state)) {
-      text = `Press any button${names ? ` or ${names}` : ''} to start the countdown, then press ${goTarget}.`;
+      text = [`Press any button${names ? ` or ${names}` : ''} to start the countdown, then press `, ...goTarget, '.'];
     } else if (a.phase === 'armed' && nextStep) {
-      text = `Ready. Press ${stepName(nextStep)} to start.`;
+      text = ['Ready. Press ', ...stepName(nextStep), ' to start.'];
     } else if (nextStep) {
-      text = `Next: ${stepName(nextStep)}`;
+      text = ['Next: ', ...stepName(nextStep)];
     } else {
-      text = '';
+      text = [];
     }
-    statusLine.textContent = text;
+    statusLine.replaceChildren(...text);
     statusLine.className = `practice-status ${cls}`.trim();
   }
 
@@ -294,14 +294,17 @@ export function renderPracticePage(
         if (i === awaiting) classes.push('awaiting');
         const target = isStart ? 'start' : `${step.targetFrame}f${tolText(step.tolEarly, step.tolLate)}`;
         return el('li', { className: classes.join(' ') }, [
-          el('span', { className: 'ps-button' }, [
-            ...(step.direction !== undefined ? [`${positionArrow(step.direction)}+`] : []),
-            ...step.buttons.flatMap((b, k) => [
-              ...(k > 0 ? ['+'] : []),
-              el('span', { className: i === heldStep && held.includes(b) ? 'held' : '', textContent: b }),
-            ]),
-            ...(step.direction === undefined && step.directionMatch === 'exact' ? [el('span', { className: 'ps-neutral', textContent: ' (neutral)' })] : []),
-          ]),
+          el(
+            'span',
+            { className: 'ps-button' },
+            notationNodes(
+              step,
+              step.buttons.flatMap((b, k) => [
+                ...(k > 0 ? ['+'] : []),
+                el('span', { className: i === heldStep && held.includes(b) ? 'held' : '', textContent: b }),
+              ]),
+            ),
+          ),
           el('span', { className: 'ps-label', textContent: step.label ?? '' }),
           el('span', { className: 'ps-target', textContent: target }),
           el('span', { className: 'ps-result', textContent: r ? describeStep(r, isStart, step) : '' }),
@@ -345,9 +348,9 @@ export function renderPracticePage(
       : [];
     const lanes = tl.steps.map((s) => {
       const step = combo.steps[s.stepIndex];
-      const name = step ? stepNotation(step) : s.expected.join('+');
+      const name = step ? notationNodes(step) : [s.expected.join('+')];
       const lane = el('div', { className: `tl-lane ${GRADE_CLASS[s.grade]}${s.chordPresses ? ' chord' : ''}` }, [
-        el('span', { className: 'tl-name', textContent: s.label ? `${name} · ${s.label}` : name }),
+        el('span', { className: 'tl-name' }, s.label ? [...name, ` · ${s.label}`] : name),
       ]);
       const track = el('div', { className: 'tl-track' });
       if (!s.isStart) {
@@ -461,7 +464,7 @@ export function renderPracticePage(
         const rate =
           sum.onTimeRate === null ? '—' : `${sum.onTime}/${sum.reached} (${fmt(sum.onTimeRate * 100, 0)}%)`;
         return el('tr', {}, [
-          el('td', { textContent: `${i + 1}. ${stepName(step)}` }),
+          el('td', {}, [`${i + 1}. `, ...stepName(step)]),
           el('td', { className: 'num', textContent: isStart ? (sum.reached ? `started ${sum.reached}×` : '—') : rate }),
           el('td', { textContent: otherResultsText(sum.counts) }),
           el('td', { className: 'num', textContent: isStart || sum.meanDelta === null ? '—' : `${sum.meanDelta > 0 ? '+' : ''}${fmt(sum.meanDelta, 2)}f` }),
@@ -689,9 +692,10 @@ export function renderPracticePage(
   };
 }
 
-function stepName(step: Step): string {
-  const name = stepNotation(step);
-  return step.label ? `${name} (${step.label})` : name;
+/** A step's notation with its label: "↓+MK (cr.MK)". */
+function stepName(step: Step): (Node | string)[] {
+  const name = notationNodes(step);
+  return step.label ? [...name, ` (${step.label})`] : name;
 }
 
 function tolText(early: number, late: number): string {

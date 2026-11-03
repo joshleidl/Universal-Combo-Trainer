@@ -2,7 +2,7 @@
 // new combo and leaves its input untouched.
 
 import { DEFAULT_FPS, frameToMs } from '../engine/timing';
-import type { ButtonId, ChordWindow, Combo, Step } from '../engine/types';
+import type { ButtonId, ChordWindow, Combo, DirectionMatch, Position, Step } from '../engine/types';
 
 export const DEFAULT_STEP: Readonly<Step> = { buttons: ['LP'], targetFrame: 0, tolEarly: 0, tolLate: 0 };
 
@@ -100,6 +100,31 @@ export function removeChordButton(combo: Combo, index: number, slot: number): Co
   const step = combo.steps[index];
   if (!step || step.buttons.length < 2 || slot < 0 || slot >= step.buttons.length) return combo;
   return updateStep(combo, index, { buttons: step.buttons.filter((_, i) => i !== slot) });
+}
+
+/**
+ * Sets or clears a step's direction (SPEC §3). A plain step that gets a direction becomes exact
+ * (the editor's default for new direction steps); changing to another direction keeps the
+ * match; clearing it makes a plain at-least step (the default for plain steps).
+ */
+export function setStepDirection(combo: Combo, index: number, direction: Position | undefined): Combo {
+  const step = combo.steps[index];
+  if (!step) return combo;
+  const next = cloneStep(step);
+  if (direction === undefined) {
+    delete next.direction;
+    delete next.directionMatch;
+  } else {
+    if (step.direction === undefined) next.directionMatch = 'exact';
+    next.direction = direction;
+  }
+  return { ...combo, steps: combo.steps.map((s, i) => (i === index ? next : s)) };
+}
+
+/** Sets how a step's direction must match: exact / at least ("neutral required" / "any direction" on a plain step). */
+export function setDirectionMatch(combo: Combo, index: number, match: DirectionMatch): Combo {
+  if (!inRange(combo, index)) return combo;
+  return updateStep(combo, index, { directionMatch: match });
 }
 
 /** The first of `choices` not already in the step, or null if none is free. */

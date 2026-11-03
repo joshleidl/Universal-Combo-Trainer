@@ -28,6 +28,10 @@
   --partial-bg: #fbe6f0;
   --window: rgba(30, 142, 62, 0.18);
   --chord-window: rgba(47, 111, 219, 0.14);
+  /* Direction match colors (SPEC §7): blue exact, orange at least. Blue vs orange stays distinct
+     with red-green and blue-yellow color blindness; both pass 4.5:1 on every card background. */
+  --dir-exact: #2348a8;
+  --dir-at-least: #a85400;
   color-scheme: light dark;
 }
 
@@ -62,6 +66,8 @@
     --partial-bg: #3a1628;
     --window: rgba(95, 208, 127, 0.2);
     --chord-window: rgba(110, 160, 255, 0.18);
+    --dir-exact: #7ab4ff;
+    --dir-at-least: #ffb04d;
   }
 }
 
@@ -472,6 +478,97 @@ tr.empty td {
   margin: 6px 0 0;
 }
 
+/* --- direction field (editor) ----------------------------------------------- */
+
+.step-direction {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The closed dropdown shows the chosen arrow in its match color; the list stays plain. */
+.step-direction select.dir-exact,
+.step-direction select.dir-at-least {
+  font-weight: 600;
+}
+.step-direction select option {
+  color: var(--text);
+  font-weight: normal;
+}
+
+.dir-grid-btn {
+  min-width: 2.2em;
+}
+
+/* Exact / at least: two buttons, the chosen one outlined in its match color. */
+.match-toggle {
+  display: inline-flex;
+}
+.match-toggle button {
+  font-size: 0.85em;
+  color: var(--muted);
+}
+.match-toggle button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.match-toggle button:last-child {
+  border-radius: 0 6px 6px 0;
+  margin-left: -1px;
+}
+.match-toggle button[aria-pressed='true'] {
+  position: relative;
+  font-weight: 600;
+  color: var(--text);
+  border-color: var(--text);
+}
+.match-toggle button[aria-pressed='true'].dir-exact {
+  color: var(--dir-exact);
+  border-color: var(--dir-exact);
+}
+.match-toggle button[aria-pressed='true'].dir-at-least {
+  color: var(--dir-at-least);
+  border-color: var(--dir-at-least);
+}
+
+/* The grid panel under a step: a 3×3 stick gate in numpad layout. */
+.dir-panel {
+  flex-basis: 100%;
+  margin-left: calc(1.6em + 12px);
+}
+.dir-panel[hidden] {
+  display: none;
+}
+.gate-picker {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 2.4em);
+  grid-template-rows: repeat(3, 2.4em);
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+}
+.gate-picker button {
+  padding: 0;
+  border-radius: 50%;
+  font-weight: 600;
+}
+.gate-picker button[aria-pressed='true'] {
+  border-width: 2px;
+  border-color: currentColor;
+}
+
+/* Text for screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .chord-diagram {
   display: block;
   width: 100%;
@@ -710,8 +807,12 @@ button.danger {
 .ps-neutral {
   font-size: 0.75em;
   font-weight: 600;
-  color: var(--muted);
 }
+
+/* Step notation: a direction's color says how it must match (exact / at least). */
+.dir-exact { color: var(--dir-exact); }
+.dir-at-least { color: var(--dir-at-least); }
+.dir-arrow { font-weight: 600; }
 
 /* Live input display: stick gate and held buttons. Shows input without judging it. */
 .live-input {
