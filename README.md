@@ -16,8 +16,7 @@ It works with any game, because it never touches the game. It only measures your
 - **Keyboard and gamepad:** works with arcade sticks, hitboxes and pads through the Gamepad API. Keys and pad controls can be remapped.
 - **Latency calibration:** tap along to a beat to measure and subtract your setup's input delay, separately for keyboard and gamepad.
 - **Sound (optional):** metronome ticks on target frames, on-time and miss sounds, and a "Hear timing" preview of the combo's rhythm.
-- **Share links:** send a combo to someone else as a URL.
-- Works at phone width, though a keyboard or controller on desktop is the main use.
+- Built for desktop with a keyboard or controller; phone screens aren't supported.
 
 ## Default controls
 

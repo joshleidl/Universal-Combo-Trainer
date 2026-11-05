@@ -90,7 +90,6 @@ export function renderControlsPage(root: HTMLElement, holder: MappingHolder, onB
         });
         const row = el('tr', { className: listening ? 'listening' : '' }, [
           el('td', { className: 'bind-button', textContent: button }),
-          // data-label names the column when the table stacks at phone width.
           el('td', { className: 'bind-keys' }, [chips(mine.filter((b) => b.source === 'keyboard'))]),
           el('td', { className: 'bind-pad' }, [chips(mine.filter((b) => b.source === 'gamepad'))]),
           el('td', { className: 'bind-action' }, [bindBtn]),

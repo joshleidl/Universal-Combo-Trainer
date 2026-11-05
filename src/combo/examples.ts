@@ -31,8 +31,8 @@ export const EXAMPLE_COMBOS: readonly ExampleCombo[] = [
       timingMode: 'relative',
       startMode: 'firstInput',
       steps: [
-        { buttons: ['LK'], targetFrame: 0, tolEarly: 0, tolLate: 0, label: 'cr.LK' },
-        { buttons: ['LK'], targetFrame: 8, tolEarly: 1, tolLate: 1, label: 'cr.LK' },
+        { buttons: ['LK'], direction: 2, directionMatch: 'atLeast', targetFrame: 0, tolEarly: 0, tolLate: 0, label: 'cr.LK' },
+        { buttons: ['LK'], direction: 2, directionMatch: 'atLeast', targetFrame: 8, tolEarly: 1, tolLate: 1, label: 'cr.LK' },
         { buttons: ['MP'], targetFrame: 10, tolEarly: 0, tolLate: 0, label: 'st.MP (1f link)' },
       ],
     },
@@ -61,7 +61,7 @@ export const EXAMPLE_COMBOS: readonly ExampleCombo[] = [
       timingMode: 'relative',
       startMode: 'firstInput',
       steps: [
-        { buttons: ['MK'], targetFrame: 0, tolEarly: 0, tolLate: 0, label: 'cr.MK' },
+        { buttons: ['MK'], direction: 2, directionMatch: 'atLeast', targetFrame: 0, tolEarly: 0, tolLate: 0, label: 'cr.MK' },
         {
           buttons: ['LP', 'LK'],
           targetFrame: 12,
@@ -71,6 +71,22 @@ export const EXAMPLE_COMBOS: readonly ExampleCombo[] = [
           label: 'chord',
         },
         { buttons: ['HP'], targetFrame: 14, tolEarly: 1, tolLate: 1, label: 'st.HP' },
+      ],
+    },
+  },
+  {
+    // A crouching normal (↓ at least: ↙ and ↘ count too), a command normal that needs → exactly
+    // (↘ would be a different move), then a standing normal that needs the stick back at neutral.
+    id: 'example-command-normal',
+    combo: {
+      name: 'Example: command normal',
+      fps: 60,
+      timingMode: 'relative',
+      startMode: 'firstInput',
+      steps: [
+        { buttons: ['LP'], direction: 2, directionMatch: 'atLeast', targetFrame: 0, tolEarly: 0, tolLate: 0, label: 'cr.LP' },
+        { buttons: ['MP'], direction: 6, directionMatch: 'exact', targetFrame: 10, tolEarly: 1, tolLate: 1, label: 'command normal' },
+        { buttons: ['HP'], directionMatch: 'exact', targetFrame: 18, tolEarly: 1, tolLate: 1, label: 'st.HP' },
       ],
     },
   },

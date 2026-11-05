@@ -1,20 +1,45 @@
 // Session stats (SPEC §7): per-step on-time rate, average and spread of deltaFrames,
 // and a running streak. Pure; the UI decides when a session resets.
 
-import type { AttemptResult, Grade } from '../engine/types';
+import type { AttemptResult, Grade, StepResult } from '../engine/types';
 
-const GRADES: readonly Grade[] = ['ON_TIME', 'EARLY', 'LATE', 'SPLIT', 'PARTIAL', 'WRONG_BUTTON', 'MISSED'];
+/**
+ * How a step's result is counted: its grade, except that a direction mistake (graded PARTIAL
+ * or WRONG_BUTTON by the engine) counts on its own, as missing or wrong direction (SPEC §7).
+ */
+export type ResultKind = Grade | 'wrongDirection' | 'missingDirection';
 
-const noCounts = (): Record<Grade, number> =>
-  Object.fromEntries(GRADES.map((g) => [g, 0])) as Record<Grade, number>;
+const KINDS: readonly ResultKind[] = [
+  'ON_TIME',
+  'EARLY',
+  'LATE',
+  'SPLIT',
+  'PARTIAL',
+  'WRONG_BUTTON',
+  'MISSED',
+  'wrongDirection',
+  'missingDirection',
+];
+
+const noCounts = (): Record<ResultKind, number> =>
+  Object.fromEntries(KINDS.map((g) => [g, 0])) as Record<ResultKind, number>;
+
+export function resultKind(r: StepResult): ResultKind {
+  if (r.directionMistake === 'wrong') return 'wrongDirection';
+  if (r.directionMistake === 'missing') return 'missingDirection';
+  return r.grade;
+}
 
 export interface StepStats {
   /** Attempts that got as far as this step (it received any grade). */
   readonly reached: number;
   readonly onTime: number;
-  /** How many times the step got each grade. */
-  readonly counts: Readonly<Record<Grade, number>>;
-  /** deltaFrames of every correct-button press (ON_TIME, EARLY, LATE, or a complete SPLIT chord). */
+  /** How many times the step got each result. */
+  readonly counts: Readonly<Record<ResultKind, number>>;
+  /**
+   * deltaFrames of every correct-button press (ON_TIME, EARLY, LATE, a complete SPLIT chord, or
+   * a direction mistake: its buttons were right).
+   */
   readonly deltas: readonly number[];
 }
 
@@ -30,7 +55,7 @@ export interface SessionStats {
 export interface StepSummary {
   reached: number;
   onTime: number;
-  counts: Readonly<Record<Grade, number>>;
+  counts: Readonly<Record<ResultKind, number>>;
   /** onTime / reached, or null before the step has been reached. */
   onTimeRate: number | null;
   meanDelta: number | null;
@@ -57,11 +82,12 @@ export function recordAttempt(stats: SessionStats, result: AttemptResult): Sessi
   const steps = stats.steps.map((s, i) => {
     const r = result.results.find((x) => x.stepIndex === i);
     if (!r) return s;
-    const timed = r.grade === 'ON_TIME' || r.grade === 'EARLY' || r.grade === 'LATE' || r.grade === 'SPLIT';
+    const kind = resultKind(r);
+    const timed = kind === 'ON_TIME' || kind === 'EARLY' || kind === 'LATE' || kind === 'SPLIT' || r.directionMistake !== undefined;
     return {
       reached: s.reached + 1,
       onTime: s.onTime + (r.grade === 'ON_TIME' ? 1 : 0),
-      counts: { ...s.counts, [r.grade]: s.counts[r.grade] + 1 },
+      counts: { ...s.counts, [kind]: s.counts[kind] + 1 },
       deltas: timed && r.deltaFrames !== undefined ? [...s.deltas, r.deltaFrames] : s.deltas,
     };
   });

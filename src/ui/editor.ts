@@ -13,16 +13,30 @@ import {
   onTimeWindow,
   removeChordButton,
   removeStep,
+  setDirectionMatch,
   setStepButton,
+  setStepDirection,
   updateStep,
   type StepPatch,
 } from '../combo/edit';
-import { SHARE_PREFIX, encodeCombo } from '../combo/share';
 import { validateCombo } from '../engine/attempt';
-import { DIRECTION_BUTTONS, type ChordWindow, type ChordWindowUnit, type Combo, type StartMode, type Step, type TimingMode } from '../engine/types';
+import {
+  DIRECTION_BUTTONS,
+  type ChordWindow,
+  type ChordWindowUnit,
+  type Combo,
+  type DirectionMatch,
+  type HeldPosition,
+  type Position,
+  type StartMode,
+  type Step,
+  type TimingMode,
+} from '../engine/types';
 import { BUTTON_IDS } from '../input/mapping';
+import { positionArrow, positionChoiceText } from '../practice/format';
 import { validateForSave, type ComboStore } from '../storage/combos';
 import { el } from './dom';
+import { matchClass } from './notation';
 
 /** Editor state that outlives the page, so switching to another page keeps unsaved edits. */
 export interface EditorSession {
@@ -31,14 +45,23 @@ export interface EditorSession {
   draft: Combo;
   /** What the draft is compared against to detect unsaved changes. */
   baseline: Combo;
-  /** One-time message for the next time the editor opens (e.g. after opening a share link). */
-  notice?: string;
 }
 
 const FPS_PRESETS = [30, 60, 120];
 
-/** Buttons a chord can use: everything but directions (SPEC §3). */
-const CHORD_BUTTONS = BUTTON_IDS.filter((b) => !DIRECTION_BUTTONS.includes(b));
+/** Buttons a step can use: everything but directions, which are never a step's button (SPEC §3). */
+const STEP_BUTTONS = BUTTON_IDS.filter((b) => !DIRECTION_BUTTONS.includes(b));
+
+/** A step's direction choices, in numpad order (SPEC §3); "none" comes first. */
+const POSITIONS: readonly Position[] = [1, 2, 3, 4, 6, 7, 8, 9];
+/** The grid panel's cells, laid out like a stick gate (numpad layout); 5 is none. */
+const GATE: readonly HeldPosition[] = [7, 8, 9, 4, 5, 6, 1, 2, 3];
+const MATCHES: readonly DirectionMatch[] = ['exact', 'atLeast'];
+/** The exact / at-least toggle's wording: for a direction step, and for a plain step. */
+const MATCH_LABELS: Record<'direction' | 'plain', Record<DirectionMatch, string>> = {
+  direction: { exact: 'exact', atLeast: 'at least' },
+  plain: { exact: 'neutral required', atLeast: 'any direction' },
+};
 
 /** Short warning shown next to the chord window, per unit. The diagram explains both. */
 const CHORD_WARNINGS: Record<ChordWindowUnit, string> = {
@@ -101,9 +124,6 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
   const deleteBtn = el('button', { type: 'button', className: 'danger', textContent: 'Delete' });
   const status = el('span', { className: 'status', role: 'status' });
   const practiceBtn = el('button', { type: 'button', className: 'practice-btn', textContent: 'Practice ▶' });
-  const shareBtn = el('button', { type: 'button', textContent: 'Copy share link' });
-  const notice = el('p', { className: 'notice', role: 'status', hidden: !session.notice, textContent: session.notice ?? '' });
-  delete session.notice;
 
   root.replaceChildren(
     el('section', { className: 'card' }, [
@@ -112,7 +132,6 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     ]),
     el('section', { className: 'card editor' }, [
       el('div', { className: 'card-head' }, [el('h2', { textContent: 'Edit combo' }), practiceBtn]),
-      notice,
       el('div', { className: 'fields' }, [
         el('label', { className: 'field grow' }, [el('span', { textContent: 'Name' }), nameInput]),
         el('label', { className: 'field' }, [el('span', { textContent: 'Framerate (fps)' }), fpsInput, fpsPresets]),
@@ -124,12 +143,15 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       stepList,
       addBtn,
       errorList,
-      el('div', { className: 'actions' }, [saveBtn, saveAsBtn, revertBtn, deleteBtn, shareBtn, status]),
+      el('div', { className: 'actions' }, [saveBtn, saveAsBtn, revertBtn, deleteBtn, status]),
     ]),
   );
 
   // --- step rows ----------------------------------------------------------
   interface StepRow {
+    directionSelect: HTMLSelectElement;
+    gridBtn: HTMLButtonElement;
+    matchBtns: HTMLButtonElement[];
     addButtonBtn: HTMLButtonElement;
     targetInput: HTMLInputElement;
     earlyInput: HTMLInputElement;
@@ -161,7 +183,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
 
     // One select per button; a chord has two or more, each with a ✕ to remove it.
     const buttonSelects = step.buttons.map((current, slot) => {
-      const choices = chord ? CHORD_BUTTONS : BUTTON_IDS;
+      const choices = STEP_BUTTONS;
       const select = el(
         'select',
         { ariaLabel: chord ? `Step ${n} button ${slot + 1}` : `Step ${n} button` },
@@ -197,7 +219,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     });
     addButtonBtn.addEventListener('click', () => {
       const current = session.draft.steps[index];
-      const extra = current && nextChordButton(current, CHORD_BUTTONS);
+      const extra = current && nextChordButton(current, STEP_BUTTONS);
       if (!extra) return;
       setDraft(addChordButton(session.draft, index, extra));
       rebuildSteps();
@@ -205,6 +227,7 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     });
 
     const chordFields = chord ? buildChordWindowField(step, index, n) : [];
+    const dir = buildDirectionField(step, index, n);
 
     const targetInput = numberInput(step.targetFrame, `Step ${n} target frame`);
     const earlyInput = numberInput(step.tolEarly, `Step ${n} early tolerance`);
@@ -239,10 +262,11 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     });
     removeBtn.classList.add('step-remove');
 
-    rows.push({ addButtonBtn, targetInput, earlyInput, lateInput, windowText, upBtn, downBtn });
+    rows.push({ ...dir.row, addButtonBtn, targetInput, earlyInput, lateInput, windowText, upBtn, downBtn });
 
     return el('li', { className: chord ? 'step chord' : 'step' }, [
       el('span', { className: 'step-num', textContent: String(n) }),
+      dir.field,
       el('div', { className: 'field' }, [
         el('span', { textContent: chord ? 'Chord (any order)' : 'Button' }),
         el('span', { className: 'step-buttons' }, [
@@ -256,8 +280,109 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       el('label', { className: 'field' }, [el('span', { textContent: 'Late tol.' }), lateInput]),
       el('label', { className: 'field grow' }, [el('span', { textContent: 'Label (optional)' }), labelInput]),
       el('div', { className: 'step-actions' }, [upBtn, downBtn, removeBtn]),
+      dir.panel,
       windowText,
     ]);
+  }
+
+  /**
+   * The direction field (SPEC §7): a dropdown, a button that opens a stick-gate grid in a panel
+   * under the step, and the exact / at-least toggle. Picking a direction rebuilds the row, which
+   * closes the panel.
+   */
+  function buildDirectionField(step: Step, index: number, n: number) {
+    const hasDirection = step.direction !== undefined;
+    const match = step.directionMatch ?? 'atLeast';
+    const color = hasDirection ? matchClass(match) : '';
+
+    const pick = (direction: Position | undefined, refocus: (row: StepRow) => HTMLElement) => {
+      setDraft(setStepDirection(session.draft, index, direction));
+      rebuildSteps();
+      const row = rows[index];
+      if (row) refocus(row).focus();
+    };
+
+    const directionSelect = el(
+      'select',
+      { ariaLabel: `Step ${n} direction`, className: color },
+      [
+        el('option', { value: '', textContent: positionChoiceText(5), selected: !hasDirection }),
+        ...POSITIONS.map((p) => el('option', { value: String(p), textContent: positionChoiceText(p), selected: step.direction === p })),
+      ],
+    );
+    directionSelect.addEventListener('change', () => {
+      const v = directionSelect.value;
+      pick(v === '' ? undefined : (Number(v) as Position), (row) => row.directionSelect);
+    });
+
+    const panelId = `dir-panel-${n}`;
+    const gridBtn = el('button', {
+      type: 'button',
+      className: 'dir-grid-btn',
+      textContent: '⊞',
+      title: 'Pick on a stick gate',
+      ariaLabel: `Pick step ${n}'s direction on a stick gate`,
+    });
+    gridBtn.setAttribute('aria-expanded', 'false');
+    gridBtn.setAttribute('aria-controls', panelId);
+
+    const cells = GATE.map((p) => {
+      const current = p === 5 ? !hasDirection : step.direction === p;
+      const cell = el('button', {
+        type: 'button',
+        className: current ? color : '',
+        textContent: positionArrow(p),
+        title: positionChoiceText(p),
+        ariaLabel: positionChoiceText(p),
+      });
+      cell.setAttribute('aria-pressed', String(current));
+      cell.addEventListener('click', () => pick(p === 5 ? undefined : p, (row) => row.gridBtn));
+      return cell;
+    });
+    const panel = el('div', { className: 'dir-panel', id: panelId, hidden: true }, [
+      el('div', { className: 'gate-picker', role: 'group', ariaLabel: `Step ${n} direction grid` }, cells),
+    ]);
+    const showPanel = (on: boolean) => {
+      panel.hidden = !on;
+      gridBtn.setAttribute('aria-expanded', String(on));
+    };
+    gridBtn.addEventListener('click', () => {
+      showPanel(panel.hidden === true);
+      if (!panel.hidden) cells.find((c) => c.getAttribute('aria-pressed') === 'true')?.focus();
+    });
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      showPanel(false);
+      gridBtn.focus();
+    });
+
+    const labels = MATCH_LABELS[hasDirection ? 'direction' : 'plain'];
+    const matchBtns = MATCHES.map((m, k) => {
+      // A plain step's "any direction" has no arrow on the practice page, so it isn't colored.
+      const btn = el('button', {
+        type: 'button',
+        className: hasDirection || m === 'exact' ? matchClass(m) : '',
+        textContent: labels[m],
+      });
+      btn.setAttribute('aria-pressed', String(m === match));
+      btn.addEventListener('click', () => {
+        if (m === (session.draft.steps[index]?.directionMatch ?? 'atLeast')) return;
+        setDraft(setDirectionMatch(session.draft, index, m));
+        rebuildSteps();
+        rows[index]?.matchBtns[k]?.focus();
+      });
+      return btn;
+    });
+
+    const field = el('div', { className: 'field' }, [
+      el('span', { textContent: 'Direction' }),
+      el('span', { className: 'step-direction' }, [
+        directionSelect,
+        gridBtn,
+        el('span', { className: 'match-toggle', role: 'group', ariaLabel: `Step ${n} direction match` }, matchBtns),
+      ]),
+    ]);
+    return { field, panel, row: { directionSelect, gridBtn, matchBtns } };
   }
 
   /** The chord window field: size, unit, and the frame-edge warning with its diagram. */
@@ -373,15 +498,11 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
       if (!step) return;
       const startsAttempt = i === 0 && firstInputStart;
       for (const input of [row.targetInput, row.earlyInput, row.lateInput]) input.disabled = startsAttempt;
-      const lone = step.buttons.length === 1 ? step.buttons[0] : undefined;
-      const isDirection = lone !== undefined && DIRECTION_BUTTONS.includes(lone);
-      const free = nextChordButton(step, CHORD_BUTTONS) !== null;
-      row.addButtonBtn.disabled = isDirection || !free;
-      row.addButtonBtn.title = isDirection
-        ? 'Directions can’t be part of a chord'
-        : free
-          ? 'Add a button pressed together with this one (a chord)'
-          : 'Every button is already in this chord';
+      const free = nextChordButton(step, STEP_BUTTONS) !== null;
+      row.addButtonBtn.disabled = !free;
+      row.addButtonBtn.title = free
+        ? 'Add a button pressed together with this one (a chord)'
+        : 'Every button is already in this chord';
       row.upBtn.disabled = i === 0;
       row.downBtn.disabled = i === d.steps.length - 1;
       row.windowText.textContent = startsAttempt
@@ -397,7 +518,6 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     saveBtn.disabled = errors.length > 0 || (!dirty && session.id !== null);
     saveAsBtn.disabled = errors.length > 0;
     practiceBtn.disabled = validateCombo(d).length > 0;
-    shareBtn.disabled = validateCombo(d).length > 0;
     practiceBtn.title = dirty ? 'Practices the combo as edited, including unsaved changes' : '';
     revertBtn.disabled = !dirty;
     deleteBtn.disabled = session.id === null;
@@ -492,19 +612,6 @@ export function renderEditorPage(root: HTMLElement, store: ComboStore, session: 
     setDraft(addStep(session.draft));
     rebuildSteps();
     rows.at(-1)?.targetInput.focus();
-  });
-  shareBtn.addEventListener('click', () => {
-    // Shares the combo as shown, including unsaved changes.
-    const url = `${location.origin}${location.pathname}${location.search}${SHARE_PREFIX}${encodeCombo(session.draft)}`;
-    const fallback = () => window.prompt('Copy this link to share the combo:', url);
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).then(
-        () => setStatus('Share link copied'),
-        () => fallback(),
-      );
-    } else {
-      fallback();
-    }
   });
   practiceBtn.addEventListener('click', () => {
     location.hash = '#practice';
@@ -641,6 +748,7 @@ function chordWindowTip(unit: ChordWindowUnit, id: string): HTMLElement {
 
 const FIELD_NAMES: Record<string, string> = {
   chordWindow: 'chord window',
+  directionMatch: 'direction match',
   targetFrame: 'target frame',
   tolEarly: 'early tolerance',
   tolLate: 'late tolerance',
@@ -649,6 +757,9 @@ const FIELD_NAMES: Record<string, string> = {
 
 /** Turns an engine validation message into plain wording for the page. */
 function friendlyError(message: string): string {
-  const text = message.replace(/\b(chordWindow|targetFrame|tolEarly|tolLate|fps)\b/g, (m) => FIELD_NAMES[m] ?? m);
+  const text = message
+    .replace('must be a numpad position 1–9 other than 5', 'must be one of the eight stick directions, or none')
+    .replace('exact or atLeast', 'exact or at least')
+    .replace(/\b(chordWindow|directionMatch|targetFrame|tolEarly|tolLate|fps)\b/g, (m) => FIELD_NAMES[m] ?? m);
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

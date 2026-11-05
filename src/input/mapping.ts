@@ -1,6 +1,6 @@
 // Raw key / gamepad button → button ID. Pure and user-remappable (SPEC §5).
 
-import type { ButtonId, PressEvent } from '../engine/types';
+import type { ButtonId, PressEvent, ReleaseEvent } from '../engine/types';
 import type { InputEvent } from './types';
 
 /** Six attack buttons, two extra (MISC1/MISC2) to cover all 8 buttons of a standard stick, and four directions. */
@@ -210,6 +210,12 @@ export function unbindGamepadButton(mapping: InputMapping, index: number): Input
 export function toPressEvent(press: InputEvent): PressEvent | null {
   if (press.edge !== 'press' || press.button === null) return null;
   return { button: press.button, timestamp: press.timestamp, source: press.source };
+}
+
+/** The engine's release shape, or null for an unmapped control or a press. */
+export function toReleaseEvent(ev: InputEvent): ReleaseEvent | null {
+  if (ev.edge !== 'release' || ev.button === null) return null;
+  return { button: ev.button, timestamp: ev.timestamp, source: ev.source };
 }
 
 // --- generic control binding (used by the Controls page) ----------------------

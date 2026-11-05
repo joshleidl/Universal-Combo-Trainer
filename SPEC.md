@@ -13,7 +13,7 @@ The tool is game-agnostic. It does not read or hook into any game; it only measu
 - **UI:** Vanilla TypeScript + DOM. No UI framework. If one is added later, the timing engine and input layer must stay framework-free modules that the UI only reads from.
 - **Tests:** Vitest
 - **Hosting:** Static files only (GitHub Pages / Netlify). No backend.
-- **Persistence:** `localStorage` for saved combos and settings. Share-by-URL is a later, optional feature.
+- **Persistence:** `localStorage` for saved combos and settings. Share-by-URL was built in Layer 5 and **dropped on 2026-11-02**; it will be added back later (BACKLOG, "Bring back share links").
 
 ## 3. Core concepts and definitions
 
@@ -24,12 +24,21 @@ The tool is game-agnostic. It does not read or hook into any game; it only measu
 
 ### Combo definition
 A **combo** is an ordered list of **steps**. Each step has:
-- `buttons`: the input(s) to press (mapped button IDs, e.g. `LP`, `HK`, `UP`). One button is a normal step. Two or more is a **chord**: all of them must be pressed within the chord window, in any order. Directions can't be part of a chord (yet).
+- `buttons`: the button(s) to press (mapped button IDs, e.g. `LP`, `HK`). One button is a normal step. Two or more is a **chord**: all of them must be pressed within the chord window, in any order (see "Chords"). Directions (`UP`, `DOWN`, `LEFT`, `RIGHT`) are never in `buttons`; they are set with `direction`. (Single-direction steps such as `['DOWN']` were removed on 2026-11-02; see "Saved data" in §4.)
+- `direction` (optional): a stick position in numpad layout: 1 ↙, 2 ↓, 3 ↘, 4 ←, 6 →, 7 ↖, 8 ↑, 9 ↗. 5 (neutral) is never stored; "neutral required" is a plain step set to `exact`.
+  - The position must be held when the button (or the chord's last button) lands (see "Directions").
+  - A step with a direction and no buttons (a "position step") is out of scope (§9).
+- `directionMatch` (optional, default `atLeast`): `exact` or `atLeast`.
+  - `exact`: the held position must be exactly `direction`. On a plain step (no `direction`), the stick must be neutral.
+  - `atLeast`: every direction in `direction` must be held, and others may be too (at least ↓ accepts ↙ ↓ ↘). On a plain step, anything is accepted (the behavior before directions existed).
+  - The editor defaults new direction steps to `exact` and new plain steps to `atLeast`.
 - `chordWindow` (chords only, required for them): how far apart a chord's presses may be, as `{ size, unit }`. `unit` is `frames` (grid frames, the same grid grading uses; `size` is an integer ≥ 0) or `ms` (corrected timestamps; `size` is a number ≥ 0). Default for a new chord in the editor: 2 frames.
 - `targetFrame`: integer frame the input should land on
 - `tolEarly`: frames early still counted as on time (default 0)
 - `tolLate`: frames late still counted as on time (default 0)
 - `label` (optional): display name, e.g. "cr.MK"
+
+Validation: a step needs at least one button; `direction` is an integer 1–9 other than 5; `directionMatch` is `exact` or `atLeast`; no direction IDs in `buttons`; no button twice.
 
 Combo-level settings:
 - `fps`
@@ -48,7 +57,7 @@ Combo-level settings:
    - `ON_TIME` if `−tolEarly ≤ deltaFrames ≤ tolLate`
    - `EARLY` if `deltaFrames < −tolEarly`
    - `LATE` if `deltaFrames > tolLate`
-   - `WRONG_BUTTON` if a different mapped button is pressed while this step is awaited
+   - `WRONG_BUTTON` if a different mapped **button** is pressed while this step is awaited (direction presses never count here; see "Directions")
    - `MISSED` if no input arrives within `targetFrame + tolLate + timeoutFrames` (default timeout 30 frames)
 5. Always report `deltaFrames` and raw `deltaMs` (relative to the start of the target frame) so feedback can show "2f late (+31.4 ms)".
 
@@ -62,16 +71,47 @@ A single-button step is graded exactly as above. A chord step (2+ buttons) works
    - `SPLIT` if the presses don't all get the same grade (any mix of early, on time and late).
    - Otherwise that grade (`ON_TIME`, `EARLY` or `LATE`).
 6. **Mistakes** (exact match):
-   - `WRONG_BUTTON` if a button that isn't in the chord is pressed while the chord is awaited, or one of its buttons is pressed twice, or any press lands on the frame the chord completed on.
+   - `WRONG_BUTTON` if a button that isn't in the chord is pressed while the chord is awaited (directions don't count), or one of its buttons is pressed twice, or any press lands on the frame the chord completed on.
    - `PARTIAL` if the window runs out with only some of the chord's buttons pressed. It is known once the window runs out, even if no other press arrives.
    - Strict mode applies to both: strict ends the attempt; non-strict logs every press of the broken chord as ignored, resets the chord, and the step keeps waiting.
 7. **First-input start with a chord as step 1:** the chord's first press is frame 0. Timing isn't checked (button correctness only, as for any start step). The next relative step counts from the frame the chord completed on.
 
+### Directions
+Directions are the absolute `UP` / `DOWN` / `LEFT` / `RIGHT` controls. There is no forward/back and no facing side.
+
+1. **Held state.** The engine knows which directions are held at every moment: the held set at the time the attempt arms, then every press and release after that, on latency-corrected timestamps. Directions held from before the attempt count.
+2. **Position.** The held directions resolve to one position. Opposite directions held together cancel out (SOCD neutral): LEFT+RIGHT gives no horizontal direction, UP+DOWN gives no vertical one. For example, LEFT+RIGHT+DOWN is ↓. "The position at the end of a frame" is the position after every press and release on that frame.
+3. **Direction presses are never mistakes.** Pressing or releasing a direction never grades a step as wrong and never ends an attempt. It only changes the held position. (Before this, a direction press during a button step was `WRONG_BUTTON` in strict mode; that rule is removed.)
+4. **The check.** A step with a `direction` and buttons, or a plain step set to `exact`, checks the held position at the **end of the grid frame its graded press landed on**: the button for a single-button step, the last press for a chord. Presses and releases anywhere on that frame count, so →+MP pressed together passes in either order.
+   ```
+   frame:        9            10            11
+                      MP(170 ms)   →(173 ms)      → held at the end of frame 10: passes
+                 →━━━━━━━━┛(168 ms) MP(171 ms)    → not held at the end of frame 10: missing
+   ```
+   The result is known when that frame ends, up to one frame after the press (like a chord). A press or release arriving later first closes any check that is due by its own corrected time, and `tick()` closes due checks with `now` minus the largest latency offset (as for chords and `MISSED`). A plain step set to `atLeast` has no check and is graded on its press, as before.
+5. **Extra presses while a check is pending.** Until the frame ends, the step stays open, as a complete chord does. A button press on that frame is an extra press:
+   - In strict mode the step is `WRONG_BUTTON` and the attempt ends. This is a button mistake, so rule 7 doesn't apply.
+   - In non-strict mode the step's press and the extra press are logged as ignored, and the step keeps waiting.
+   - Direction presses and releases on that frame aren't extra presses; they only change the held position the check reads.
+   - A chord with a direction already follows this rule through its completing frame.
+   - Cost: a next step with a relative target of 0 can't be pressed on that frame (the same cost chords have).
+6. **Result.** The step's timing is graded as usual (single press or chord rules). If the check fails, the grade is replaced:
+   - `PARTIAL` (missing direction) when the held position is a strict part of the wanted one, including nothing held (e.g. nothing for →; ↓ for ↘).
+   - `WRONG_BUTTON` (wrong direction) otherwise: a different direction, an extra direction on an exact step, or any direction on an exact plain step.
+   - The timing fields (`inputFrame`, `deltaFrames`, `deltaMs`, and per-press timing for chords) are kept, and the result records the held and wanted positions and the cause (`missing` / `wrong`).
+7. **A direction mistake never ends the attempt, in strict or non-strict mode.** The attempt moves on, and the next relative step counts from the graded press's frame. The attempt isn't a success.
+8. **Chords with a direction.** The chord rules run first. A chord that breaks (wrong or extra button, or `PARTIAL` because its window ran out) is graded by the chord rules and the direction isn't checked. A complete chord is checked at the end of the frame it completed on (the frame it already stays open until). A failed check replaces the chord's grade, including `SPLIT`.
+9. **First-input start.** A direction+button step 1: the button press is frame 0, and the direction is checked at the end of frame 0.
+10. **`MISSED`** is unchanged: holding a direction never starts or pauses the timer.
+
 ### Input rules
-- Only the **press edge** counts (button goes from up to down). Holds and key auto-repeat are ignored.
+- Buttons count on the **press edge** (up to down). Directions count by what's held (see "Directions"). Holds and key auto-repeat of buttons are ignored.
 - **Strict mode** (default on): a wrong button ends the attempt with `WRONG_BUTTON`. With strict mode off, wrong presses are logged but ignored, and the step keeps waiting.
-- An attempt ends when all steps are graded, on `MISSED`, or on a strict-mode `WRONG_BUTTON` or `PARTIAL`.
-- A chord's presses are ordinary press edges; the input layer doesn't change. Known limits: some keyboards can't register certain 3+ key combinations (rollover / ghosting), and pad buttons seen in the same poll share one timestamp.
+- An attempt ends when all steps are graded, on `MISSED`, or on a strict-mode `WRONG_BUTTON` or `PARTIAL` from a button or chord mistake. Direction mistakes never end it.
+- A chord's presses are ordinary press edges; the input layer doesn't change. Known limits:
+  - Some keyboards can't register certain 3+ key combinations (rollover / ghosting), including direction keys with buttons (e.g. WASD plus U/I/O).
+  - Pad buttons seen in the same poll share one timestamp.
+  - The keyboard tracker forgets keys held across a window blur, so such a key reads as up until it's pressed again. Pad held state is always accurate (each poll reads the full state).
 
 ## 4. Architecture
 
@@ -82,6 +122,7 @@ src/
     timing.ts      frame/ms conversion, grading function
     attempt.ts     attempt state machine: idle → armed → running → done
     chord.ts       chord helpers: window checks, per-press timing, split rule
+    direction.ts   direction helpers: held set → position (SOCD), matching, mistake cause
   input/         # converts keyboard + gamepad into timestamped press events
     types.ts       InputPress / InputRelease event shapes
     keyboard.ts
@@ -90,6 +131,7 @@ src/
     wake.ts        "wake your controller" banner state (pure)
   ui/            # DOM rendering only; reads engine state, never owns timing
     editor.ts      combo builder
+    notation.ts    step notation on the page (colored direction arrows)
     practice.ts    run attempts, live feedback, last-attempt timeline, session stats
     controls.ts    Controls page: remap keys and pad controls
     calibrate.ts   latency calibration screen
@@ -99,7 +141,6 @@ src/
   combo/         # pure combo-editing helpers + shipped examples; no DOM; unit tested
     edit.ts
     examples.ts
-    share.ts       combo ↔ share-link code
   calibration/   # pure latency-calibration math; no DOM; unit tested
     calibration.ts beat schedule, tap matching, median offset per source
   practice/      # pure practice-session logic on top of the engine; no DOM; unit tested
@@ -114,7 +155,7 @@ src/
     combos.ts      save/load via localStorage (storage injected, so it's testable in Node)
     mapping.ts     saved input mapping
     settings.ts    saved app settings (strict mode, sound, latency offsets)
-  main.ts        page shell + hash routing (#practice, #controls, #calibrate, #debug, #share=…)
+  main.ts        page shell + hash routing (#practice, #controls, #calibrate, #debug)
   style.css      all app styles, light and dark
 scripts/
   backup-transcript.mjs        session transcript backup (§10)
@@ -137,6 +178,30 @@ Rules:
 - `engine/` has no imports from `input/` or `ui/`. It accepts `{ button, timestamp }` press events and returns results. This makes it testable with synthetic timestamps.
 - `input/` emits press events in a common shape regardless of source.
 - `ui/` never computes timing itself.
+
+### Engine API: directions
+Additions for "Directions" (§3), approved by the user on 2026-11-02. `Grade` and `AttemptEnd` don't change.
+- **Types** (`engine/types.ts`):
+  - `Position = 1 | 2 | 3 | 4 | 6 | 7 | 8 | 9` (what a step stores) and `HeldPosition = Position | 5` (what the stick can read; 5 is neutral).
+  - `DirectionMatch = 'exact' | 'atLeast'`; `DirectionMistake = 'missing' | 'wrong'`.
+  - `Step` gains `direction?: Position` and `directionMatch?: DirectionMatch`.
+  - `ReleaseEvent`: same shape as `PressEvent` (`{ button, timestamp, source }`).
+  - `StepResult` gains `direction?: { wanted: HeldPosition; held: HeldPosition; match: DirectionMatch }`, set on every step that ran a check (`wanted` is 5 for an exact plain step), and `directionMistake?: DirectionMistake` when the check failed.
+  - `AttemptResult` gains `positions: PositionChange[]`, with `PositionChange = { frame: number; position: HeldPosition; timestamp: number }`: the position at frame 0, then one entry for each frame whose ending position differs from the frame before. `timestamp` is the corrected time of the input that made the change (frame 0's timestamp for the first entry).
+- **Helpers** (`engine/direction.ts`, pure): `isDirection(button)`; `resolvePosition(held: readonly ButtonId[]): HeldPosition` (with SOCD); `positionDirections(p: HeldPosition): ButtonId[]`; `positionMatches(wanted: HeldPosition, held: HeldPosition, match: DirectionMatch): boolean`; `directionMistake(wanted: HeldPosition, held: HeldPosition): DirectionMistake`; `hasDirectionCheck(step)`.
+- **Attempt** (`engine/attempt.ts`):
+  - `arm(state, held?: readonly ButtonId[])`: the directions held when the attempt arms. Left out, it keeps the held set the state already has (so a quick restart from `done` keeps it).
+  - `press(state, ev)` takes button and direction presses. A direction press only changes the held set.
+  - New `release(state, ev: ReleaseEvent)`: a button release is ignored; a direction release changes the held set.
+  - Both keep the held set up to date in the `idle`, `armed` and `running` phases, even when the press itself isn't graded (e.g. before `start()` in countdown mode).
+  - `AttemptState` gains `held: readonly ButtonId[]` (directions only) and `pendingCheck`, an end-of-frame check waiting to close (like `chord`). New query `heldPosition(state): HeldPosition` for the live input display.
+  - `AttemptState` also gains `positionLog: readonly { t: number; position: HeldPosition }[]` (approved by the user on 2026-11-02, session C): the position at arm (`t` = −Infinity), then each change of the resolved position with its corrected time. `attemptResult` turns it into `positions` once frame 0 is known; in first-input mode frame 0 isn't known until the first button press, so `positions` can't be built live.
+- **Practice** (`practice/session.ts`): new `practiceRelease(state, ev)`. `createPractice` and restarts pass the held set to `arm`.
+
+### Saved data
+- **Storage** stays `uct.combos.v1`. A step without `direction` or `directionMatch` is a plain at-least step, so old steps load as they were.
+- **Single-direction steps removed (2026-11-02):** loading drops any step whose only button is a direction (e.g. `['DOWN']`). In relative mode the next kept step's `targetFrame` absorbs the removed steps' targets, so the rest of the combo keeps its timing; in absolute mode targets don't change. Tolerances and labels of removed steps are lost. A combo made only of direction steps is dropped. When anything was converted or dropped, the original data goes to the backup key (`uct.combos.v1.backup`) and storage is rewritten once.
+- **Share links are dropped** (2026-11-02; code removed in direction+button session B). There is no share code v3. When share links come back (BACKLOG), their format has to carry `direction` and `directionMatch`.
 
 ## 5. Input sources
 
@@ -188,7 +253,17 @@ Findings so far:
 - **Session stats:** per-step on-time rate, a count of each other result (early, late, split, partial, wrong, missed), average and spread of `deltaFrames`, and a running streak. Reset per session.
 - **Optional audio:** a metronome tick on target frames and distinct sounds for on-time vs miss. Off by default.
 - Quick restart key (e.g. Space or a gamepad button) to re-arm immediately.
-- Must be usable at phone width, though desktop with keyboard/controller is the primary target.
+- **Desktop only:** the app is built and checked for desktop with a keyboard or controller. Phone width isn't supported (dropped 2026-11-02, see DECISIONS.md).
+
+### Directions in the UI
+- **Notation:** arrows (↙ ↓ ↘ ← → ↖ ↑ ↗, "•" for neutral), e.g. →+MP, ↓+MK, ↘+HP, ←+LP+LK. A plain step set to exact shows "(neutral)". Exact and at-least directions are told apart by **color, not a symbol** (user's call, session E): the arrow is blue when exact, orange when at least, and "(neutral)" is blue (exact). Blue vs orange was picked to stay distinct with color blindness, and each color keeps at least 4.5:1 contrast on every card background in light and dark themes. Hovering an arrow says "exactly ↓" / "at least ↓", and screen readers read the same. A plain at-least step has no arrow and no color. The practice page (step cards, status line, timeline lane names, stats rows) and the editor share this notation (`practice/format.ts`, drawn by `ui/notation.ts`).
+- **Editor:** each step row has a direction dropdown ("• none", "↘ down-right", …). Opening it (or a button beside it) shows a 3×3 grid in a panel under the step, laid out like a stick gate; picking there sets the dropdown. An exact / at-least toggle sits next to it ("neutral required" / "any direction" on plain steps). Button selects don't offer directions (removed 2026-11-02 with single-direction steps). No new hint or warning text.
+- **Practice page:** a live input display (stick gate and pressed buttons), always shown, reading held state from the practice layer. It shows input without judging it.
+- **Feedback text:** the usual timing text, then a direction note on a mistake: "On time (+5.2 ms) · Direction: ↘, wanted → exactly". The note says "wanted → exactly" when the step is exact and the held position contains the wanted one, "wanted any ↓" for at least, "wanted neutral" for exact plain steps, and "none" when nothing is held.
+- **Timeline:** one stick lane above the step lanes: one segment per position from frame 0, tagged with its arrow, neutral left empty, using the position after SOCD at each frame's end (`AttemptResult.positions`). Drawn only if the combo has a direction step or a direction was held. Each graded button dot of a step that ran a check is tagged with the held position, red on a direction mistake.
+- **Stats:** direction mistakes count toward average and spread (the button press was right). "Other results" labels them separately: "wrong direction", "missing direction".
+- **Sounds:** a direction mistake plays the "step off" sound (it doesn't end the attempt). No new sound or color: colors stay the grade's (pink for `PARTIAL`, red for `WRONG_BUTTON`).
+- **Countdowns:** only a button press starts or restarts a countdown; direction presses and releases don't. They still update the held state, so a direction pressed during the countdown counts once the attempt runs. This covers any press during a countdown and, in countdown start mode, the press that starts it. The restart control (Space, pad Start/Back) is unchanged. From the last beat on in countdown start mode, presses already go to the running attempt, as before.
 
 ## 8. Build layers
 
@@ -209,7 +284,7 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 
 ### Layer 3: Sequence editor + storage
 - Add/remove/reorder steps; edit button, target frame, tolerances, label; combo-level settings.
-- Save, load, rename, delete combos in `localStorage`. Ship 2–3 example combos.
+- Save, load, rename, delete combos in `localStorage`. Ship 2–3 example combos (later grown to 4 with chords and 5 with direction+button steps).
 
 **Done when:** a combo can be created, saved, reloaded after refresh, and edited.
 
@@ -220,13 +295,33 @@ Implement **one layer at a time**. At the end of each layer: tests pass, the app
 
 ### Layer 5: Polish
 - Latency calibration screen (§6), audio cues, countdown start mode UI, input remapping UI (done early, in Layer 4, at the user's request), mobile layout pass, deploy config for static hosting.
-- Optional: share combo via URL.
+- Optional: share combo via URL (built, then dropped on 2026-11-02; see §2).
 - Reviewed in two parts:
   - **Part A:** audio cues and sound feedback, countdown start mode, countdown before each attempt, saved settings, and a "Hear timing" preview.
   - **Part B:** latency calibration, mobile layout pass, deploy config, optional share-by-URL.
+- The phone-width requirement and the mobile layout were removed on 2026-11-02 (§7).
+
+### Direction+button steps (2026-11-02)
+Built from [docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md](docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md). One review stop per session; each ends with `mise run test` and `mise run typecheck` passing.
+- **A. Spec:** apply the proposal (as amended in its section 7) to SPEC.md, log the decisions in DECISIONS.md, update BACKLOG.md, settle the API names. No feature code.
+- **B. Types:** `direction` and `directionMatch` on `Step`, validation, loading and saving the new fields. Remove share links (the editor's "Copy share link" button, the `#share=` route, `combo/share.ts` and its tests). Grading doesn't change yet.
+- **C. Engine:**
+  - Held state, `release`, and the held set at arm.
+  - SOCD position, the end-of-frame check, exact / at least.
+  - Grade replacement and continuing after a mistake; chords with a direction.
+  - Stray directions not mistakes.
+  - `positions` history and `directionMistake`.
+  - A table test covering the proposal's worked examples (section 2), except the position-step cases L1, L1e and L2.
+- **D. Practice side:** pass releases and the held set through; only button presses start or restart a countdown; feedback text, stats, sounds, the timeline stick lane and tagged dots, the live input display.
+- **E. Editor and examples:** dropdown and grid panel, toggle, arrow notation with exact / at-least colors (a symbol marker was planned; the user chose colors), examples (fix "cr." steps to ↓ at least, add "Example: command normal").
+- **F. Hardware check:** keyboard (including SOCD with A+D) and the stick's hat lever; log the results in SPEC like the polling findings.
+
+**Done when:** every in-scope case in the proposal's section 2 passes as a test, and direction+button steps can be built, saved, practiced and reviewed on the timeline with a keyboard or controller.
 
 ## 9. Out of scope (for now)
-- Motion inputs (quarter-circles, charge inputs), negative edge (a release as an input), and directions in chords. Button chords are supported (§3, "Chords").
+- Motion inputs (quarter-circles, charge inputs), negative edge (a release as an input), and **position steps** (a direction with no button, graded on the frame the stick enters it; dropped from direction+button on 2026-11-02, BACKLOG "Position steps"). Button chords (§3, "Chords") and directions with buttons or chords (§3, "Directions") are supported.
+- **Frame snapshots:** grouping every press, release and held input on one grid frame into a single snapshot that grading reads at once, the way a game reads input once per frame. Today the engine grades press by press, so presses on the same frame can give different results depending on their order (BACKLOG, "same-frame presses" bug). Snapshots would replace the one-off end-of-frame rules (chord completion, the chord window in frames, and the direction check in §3 "Directions") without changing their behavior. Already decided for it: a tap pressed and released within one frame doesn't register, as in a game that reads held state once per frame; and the chord window's `ms` unit becomes obsolete, since snapshots group presses by frame. Found during the direction+button interview; see [docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md](docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md).
+- **Direction+button follow-ups** (found during the same interview, 2026-11-02): facing / side switching (forward and back relative to the character; steps use absolute `RIGHT` / `LEFT`); a per-combo SOCD rule (the proposal resolves opposite directions to neutral); numpad notation as a display option (the proposal uses arrows); setting a step's direction by holding it on the stick; a "return to neutral" position step; a show/hide toggle for the live input display.
 - Reading game memory or game frame data.
 - Accounts, online leaderboards, any backend.
 

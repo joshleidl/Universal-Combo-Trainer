@@ -2,7 +2,7 @@
 // new combo and leaves its input untouched.
 
 import { DEFAULT_FPS, frameToMs } from '../engine/timing';
-import type { ButtonId, ChordWindow, Combo, Step } from '../engine/types';
+import type { ButtonId, ChordWindow, Combo, DirectionMatch, Position, Step } from '../engine/types';
 
 export const DEFAULT_STEP: Readonly<Step> = { buttons: ['LP'], targetFrame: 0, tolEarly: 0, tolLate: 0 };
 
@@ -102,12 +102,40 @@ export function removeChordButton(combo: Combo, index: number, slot: number): Co
   return updateStep(combo, index, { buttons: step.buttons.filter((_, i) => i !== slot) });
 }
 
+/**
+ * Sets or clears a step's direction (SPEC §3). A plain step that gets a direction becomes exact
+ * (the editor's default for new direction steps); changing to another direction keeps the
+ * match; clearing it makes a plain at-least step (the default for plain steps).
+ */
+export function setStepDirection(combo: Combo, index: number, direction: Position | undefined): Combo {
+  const step = combo.steps[index];
+  if (!step) return combo;
+  const next = cloneStep(step);
+  if (direction === undefined) {
+    delete next.direction;
+    delete next.directionMatch;
+  } else {
+    if (step.direction === undefined) next.directionMatch = 'exact';
+    next.direction = direction;
+  }
+  return { ...combo, steps: combo.steps.map((s, i) => (i === index ? next : s)) };
+}
+
+/** Sets how a step's direction must match: exact / at least ("neutral required" / "any direction" on a plain step). */
+export function setDirectionMatch(combo: Combo, index: number, match: DirectionMatch): Combo {
+  if (!inRange(combo, index)) return combo;
+  return updateStep(combo, index, { directionMatch: match });
+}
+
 /** The first of `choices` not already in the step, or null if none is free. */
 export function nextChordButton(step: Step, choices: readonly ButtonId[]): ButtonId | null {
   return choices.find((b) => !step.buttons.includes(b)) ?? null;
 }
 
-/** True when two combos have the same content (key order and missing labels don't matter). */
+/**
+ * True when two combos have the same content (key order, missing labels and a missing
+ * directionMatch, which means atLeast, don't matter).
+ */
 export function combosEqual(a: Combo, b: Combo): boolean {
   return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
@@ -125,6 +153,9 @@ function canonical(c: Combo): unknown {
       s.tolLate,
       s.label ?? '',
       s.buttons.length > 1 && s.chordWindow ? [s.chordWindow.size, s.chordWindow.unit] : null,
+      s.direction ?? null,
+      // A step without a match is at least (SPEC §3).
+      s.directionMatch ?? 'atLeast',
     ]),
   ];
 }

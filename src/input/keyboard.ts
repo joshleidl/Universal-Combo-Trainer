@@ -53,12 +53,25 @@ export class KeyboardTracker {
   reset(): void {
     this.held.clear();
   }
+
+  /**
+   * Forgets held keys like reset(), and returns a release at `timeStamp` for each, so listeners
+   * see those keys as up (SPEC §3: a key held across a blur reads as up until pressed again).
+   */
+  releaseAll(timeStamp: number): InputRelease[] {
+    const releases = [...this.held].map((code) => this.keyUp({ code, timeStamp }) as InputRelease);
+    this.held.clear();
+    return releases;
+  }
 }
 
 export interface KeyboardOptions {
   mapping: InputMapping;
   onPress: (press: InputPress) => void;
-  /** Optional, for diagnostics. Releases are never graded. */
+  /**
+   * Optional. Releases are never graded; they change what is held (directions, the live input
+   * display). When the window loses focus, every held key gets a release at the blur time.
+   */
   onRelease?: (release: InputRelease) => void;
 }
 
@@ -85,7 +98,9 @@ export function attachKeyboard(target: EventTarget, options: KeyboardOptions): K
     const release = tracker.keyUp(ev as KeyboardEvent);
     if (release) options.onRelease?.(release);
   };
-  const onBlur = () => tracker.reset();
+  const onBlur = (ev: Event) => {
+    for (const release of tracker.releaseAll(ev.timeStamp)) options.onRelease?.(release);
+  };
 
   target.addEventListener('keydown', onKeyDown);
   target.addEventListener('keyup', onKeyUp);

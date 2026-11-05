@@ -154,10 +154,11 @@ describe('combosEqual / cloneCombo', () => {
 });
 
 describe('EXAMPLE_COMBOS', () => {
-  it('ships 3–4 valid examples (one with a chord) with unique ids', () => {
+  it('ships 3–5 valid examples (one with a chord, one with a direction) with unique ids', () => {
     expect(EXAMPLE_COMBOS.length).toBeGreaterThanOrEqual(3);
-    expect(EXAMPLE_COMBOS.length).toBeLessThanOrEqual(4);
+    expect(EXAMPLE_COMBOS.length).toBeLessThanOrEqual(5);
     expect(EXAMPLE_COMBOS.some((e) => e.combo.steps.some((st) => st.buttons.length > 1))).toBe(true);
+    expect(EXAMPLE_COMBOS.some((e) => e.combo.steps.some((st) => st.direction !== undefined))).toBe(true);
     expect(new Set(EXAMPLE_COMBOS.map((e) => e.id)).size).toBe(EXAMPLE_COMBOS.length);
     for (const e of EXAMPLE_COMBOS) expect(validateCombo(e.combo)).toEqual([]);
   });

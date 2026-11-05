@@ -4,7 +4,7 @@
 
 import { validateCombo, chordProgress, currentStepIndex, attemptResult, type AttemptState } from '../engine/attempt';
 import { DEFAULT_SETTINGS, frameMs } from '../engine/timing';
-import type { Combo, Grade, Settings } from '../engine/types';
+import { DIRECTION_BUTTONS, type Combo, type Grade, type HeldPosition, type Settings, type Step } from '../engine/types';
 import { cloneCombo, combosEqual } from '../combo/edit';
 import {
   DEFAULT_POLL_MODE,
@@ -13,27 +13,33 @@ import {
   browserPollerDeps,
   isResolutionTooCoarse,
   startGamepadPolling,
+  BUTTON_IDS,
   listBindings,
   mapControl,
   parseControl,
   toPressEvent,
+  toReleaseEvent,
   type InputMapping,
   type InputPress,
+  type InputRelease,
 } from '../input';
 import {
   buildTimeline,
-  buttonsName,
   countdownBeatTimes,
   countdownGoAt,
   countdownShown,
   createPractice,
   describeAttempt,
   describeStep,
+  liveInput,
   metronomeTicks,
+  otherResultsText,
+  positionArrow,
   practiceCues,
   timingPreview,
   type PreviewSound,
   practicePress,
+  practiceRelease,
   practiceRestart,
   practiceTick,
   practiceWithSettings,
@@ -50,6 +56,7 @@ import {
 import type { ScheduledSound, SoundPlayer } from '../audio/sounds';
 import type { AppSettings } from '../storage/settings';
 import { el } from './dom';
+import { notationNodes } from './notation';
 import type { EditorSession } from './editor';
 
 /** The app's saved settings, shared by every page. */
@@ -98,6 +105,11 @@ const GRADE_CLASS: Record<Grade, string> = {
 };
 
 const fmt = (n: number, digits = 1) => n.toFixed(digits);
+
+/** Buttons on the live input display, laid out like a stick: punches on top, kicks below. */
+const DISPLAY_BUTTONS = BUTTON_IDS.filter((b) => !DIRECTION_BUTTONS.includes(b));
+/** Stick gate cells in numpad layout, top row first. */
+const GATE: readonly HeldPosition[] = [7, 8, 9, 4, 5, 6, 1, 2, 3];
 
 export function renderPracticePage(
   root: HTMLElement,
@@ -167,6 +179,13 @@ export function renderPracticePage(
   });
   const statusLine = el('p', { className: 'practice-status', role: 'status' });
   const stepRow = el('ol', { className: 'practice-steps' });
+  // Live input display: shows what is held, without judging it.
+  const gateCells = GATE.map((pos) => el('span', { className: 'gate-cell', textContent: pos === 5 ? '' : positionArrow(pos) }));
+  const buttonChips = DISPLAY_BUTTONS.map((b) => el('span', { className: 'input-chip', textContent: b }));
+  const liveBox = el('div', { className: 'live-input', title: 'Input display: what you are holding right now' }, [
+    el('div', { className: 'gate', ariaLabel: 'Stick' }, gateCells),
+    el('div', { className: 'input-chips', ariaLabel: 'Buttons' }, buttonChips),
+  ]);
   const gamepadWarning = el('p', { className: 'warning', hidden: true });
   const timelineBox = el('div', { className: 'timeline' });
   const timelineNote = el('p', { className: 'hint' });
@@ -192,6 +211,7 @@ export function renderPracticePage(
       countdownBox,
       statusLine,
       stepRow,
+      liveBox,
       gamepadWarning,
       el('p', { className: 'hint' }, keyHint(mapping)),
       el('p', { className: 'hint' }, latencyHint(app.current)),
@@ -224,6 +244,7 @@ export function renderPracticePage(
 
     renderStatus();
     renderSteps();
+    renderLive();
     if (shownChanged) renderTimeline(state.lastFinished);
     if (statsChanged || shownChanged) renderStats();
   }
@@ -232,29 +253,29 @@ export function renderPracticePage(
     const a = state.attempt;
     const next = currentStepIndex(a);
     const nextStep = next !== null ? combo.steps[next] : undefined;
-    let text: string;
+    let text: (Node | string)[];
     let cls = '';
     const names = restartNames.join(' / ');
     const firstStep = combo.steps[0];
-    const goTarget = firstStep ? `${stepName(firstStep.buttons, firstStep.label)} on frame ${firstStep.targetFrame} after Go` : '';
+    const goTarget = firstStep ? [...stepName(firstStep), ` on frame ${firstStep.targetFrame} after Go`] : [];
     if (a.phase === 'done') {
       const result = attemptResult(a);
       const skip = !isCountdown && names ? `; ${names} skips it` : '';
-      text = `${result ? describeAttempt(result) : 'Done.'} Next attempt after the countdown. Pressing a button restarts the countdown${skip}.`;
+      text = [`${result ? describeAttempt(result) : 'Done.'} Next attempt after the countdown. Pressing a button restarts the countdown${skip}.`];
       cls = result?.success ? 'success' : 'fail';
     } else if (state.countdown !== null) {
       // Countdown mode before Go (the attempt is already live during the last beat).
-      text = `Get ready: press ${goTarget}. Pressing a button before the last beat restarts the countdown.`;
+      text = ['Get ready: press ', ...goTarget, '. Pressing a button before the last beat restarts the countdown.'];
     } else if (waitingToStart(state)) {
-      text = `Press any button${names ? ` or ${names}` : ''} to start the countdown, then press ${goTarget}.`;
+      text = [`Press any button${names ? ` or ${names}` : ''} to start the countdown, then press `, ...goTarget, '.'];
     } else if (a.phase === 'armed' && nextStep) {
-      text = `Ready. Press ${stepName(nextStep.buttons, nextStep.label)} to start.`;
+      text = ['Ready. Press ', ...stepName(nextStep), ' to start.'];
     } else if (nextStep) {
-      text = `Next: ${stepName(nextStep.buttons, nextStep.label)}`;
+      text = ['Next: ', ...stepName(nextStep)];
     } else {
-      text = '';
+      text = [];
     }
-    statusLine.textContent = text;
+    statusLine.replaceChildren(...text);
     statusLine.className = `practice-status ${cls}`.trim();
   }
 
@@ -276,17 +297,26 @@ export function renderPracticePage(
           el(
             'span',
             { className: 'ps-button' },
-            step.buttons.flatMap((b, k) => [
-              ...(k > 0 ? ['+'] : []),
-              el('span', { className: i === heldStep && held.includes(b) ? 'held' : '', textContent: b }),
-            ]),
+            notationNodes(
+              step,
+              step.buttons.flatMap((b, k) => [
+                ...(k > 0 ? ['+'] : []),
+                el('span', { className: i === heldStep && held.includes(b) ? 'held' : '', textContent: b }),
+              ]),
+            ),
           ),
           el('span', { className: 'ps-label', textContent: step.label ?? '' }),
           el('span', { className: 'ps-target', textContent: target }),
-          el('span', { className: 'ps-result', textContent: r ? describeStep(r, isStart) : '' }),
+          el('span', { className: 'ps-result', textContent: r ? describeStep(r, isStart, step) : '' }),
         ]);
       }),
     );
+  }
+
+  function renderLive() {
+    const live = liveInput(state);
+    gateCells.forEach((cell, k) => cell.classList.toggle('on', GATE[k] === live.position));
+    buttonChips.forEach((chip, k) => chip.classList.toggle('on', live.buttons.includes(DISPLAY_BUTTONS[k] ?? '')));
   }
 
   function renderTimeline(attempt: AttemptState | null) {
@@ -299,12 +329,28 @@ export function renderPracticePage(
       return;
     }
     const pct = (frame: number) => `${(frame / tl.endFrame) * 100}%`;
+    const stickLane = tl.stick
+      ? [
+          el('div', { className: 'tl-lane stick' }, [
+            el('span', { className: 'tl-name', textContent: 'Stick' }),
+            el(
+              'div',
+              { className: 'tl-track' },
+              tl.stick.map((seg) => {
+                const bar = el('div', { className: 'tl-stick-seg', textContent: positionArrow(seg.position), title: `Held ${positionArrow(seg.position)}` });
+                bar.style.left = pct(seg.start);
+                bar.style.width = pct(seg.end - seg.start);
+                return bar;
+              }),
+            ),
+          ]),
+        ]
+      : [];
     const lanes = tl.steps.map((s) => {
+      const step = combo.steps[s.stepIndex];
+      const name = step ? notationNodes(step) : [s.expected.join('+')];
       const lane = el('div', { className: `tl-lane ${GRADE_CLASS[s.grade]}${s.chordPresses ? ' chord' : ''}` }, [
-        el('span', {
-          className: 'tl-name',
-          textContent: s.label ? `${buttonsName(s.expected)} · ${s.label}` : buttonsName(s.expected),
-        }),
+        el('span', { className: 'tl-name' }, s.label ? [...name, ` · ${s.label}`] : name),
       ]);
       const track = el('div', { className: 'tl-track' });
       if (!s.isStart) {
@@ -346,7 +392,7 @@ export function renderPracticePage(
       } else if (s.input !== null) {
         const mark = el('div', {
           className: 'tl-input',
-          title: s.pressed ? `Pressed ${s.pressed}` : `Pressed ${buttonsName(s.expected)}`,
+          title: s.pressed ? `Pressed ${s.pressed}` : `Pressed ${s.expected.join('+')}`,
         });
         mark.style.left = pct(s.input);
         track.append(mark);
@@ -355,6 +401,17 @@ export function renderPracticePage(
           tag.style.left = pct(s.input);
           track.append(tag);
         }
+      }
+      if (s.direction && s.input !== null) {
+        // The position the check read, tagged on the graded press's dot.
+        const arrow = positionArrow(s.direction.held);
+        const tag = el('span', {
+          className: `tl-dir${s.direction.mistake ? ' mistake' : ''}`,
+          textContent: arrow,
+          title: `${s.direction.held === 5 ? 'Nothing' : arrow} held${s.direction.mistake ? ' (direction mistake)' : ''}`,
+        });
+        tag.style.left = pct(s.input);
+        track.append(tag);
       }
       lane.append(track);
       return lane;
@@ -385,12 +442,13 @@ export function renderPracticePage(
       ticks.push(t);
     }
     timelineBox.replaceChildren(
+      ...stickLane,
       ...lanes,
       ...ignoredLane,
       el('div', { className: 'tl-lane ruler' }, [el('span', { className: 'tl-name', textContent: 'Frame' }), el('div', { className: 'tl-track' }, ticks)]),
     );
     const result = attemptResult(attempt);
-    timelineNote.textContent = `${result ? describeAttempt(result) : ''} Shaded: on-time window. Line: target frame. Dot: your press. Frames count from ${isCountdown ? 'Go' : 'the first press'} at ${tl.fps} fps (1 frame = ${fmt(frameMs(tl.fps), 2)} ms).`;
+    timelineNote.textContent = `${result ? describeAttempt(result) : ''} Shaded: on-time window. Line: target frame. Dot: your press.${tl.stick ? ' Arrows by a dot: the stick position checked there.' : ''} Frames count from ${isCountdown ? 'Go' : 'the first press'} at ${tl.fps} fps (1 frame = ${fmt(frameMs(tl.fps), 2)} ms).`;
   }
 
   function renderStats() {
@@ -406,9 +464,9 @@ export function renderPracticePage(
         const rate =
           sum.onTimeRate === null ? '—' : `${sum.onTime}/${sum.reached} (${fmt(sum.onTimeRate * 100, 0)}%)`;
         return el('tr', {}, [
-          el('td', { textContent: `${i + 1}. ${stepName(step.buttons, step.label)}` }),
+          el('td', {}, [`${i + 1}. `, ...stepName(step)]),
           el('td', { className: 'num', textContent: isStart ? (sum.reached ? `started ${sum.reached}×` : '—') : rate }),
-          el('td', { textContent: otherResults(sum.counts) }),
+          el('td', { textContent: otherResultsText(sum.counts) }),
           el('td', { className: 'num', textContent: isStart || sum.meanDelta === null ? '—' : `${sum.meanDelta > 0 ? '+' : ''}${fmt(sum.meanDelta, 2)}f` }),
           el('td', { className: 'num', textContent: isStart || sum.spread === null ? '—' : `${fmt(sum.spread, 2)}f` }),
         ]);
@@ -532,6 +590,11 @@ export function renderPracticePage(
       if (ev) update(practicePress(state, ev));
     }
   };
+  // Releases change what is held: directions for grading, and the live input display.
+  const onRelease = (release: InputRelease) => {
+    const ev = toReleaseEvent(release);
+    if (ev) update(practiceRelease(state, ev));
+  };
 
   // Space would otherwise scroll the page or click the focused button.
   const onSpace = (e: KeyboardEvent) => {
@@ -540,10 +603,10 @@ export function renderPracticePage(
   window.addEventListener('keydown', onSpace, true);
   window.addEventListener('keyup', onSpace, true);
 
-  const keyboard = attachKeyboard(window, { mapping, onPress });
+  const keyboard = attachKeyboard(window, { mapping, onPress, onRelease });
   const tracker = new GamepadTracker(mapping);
   const deps = browserPollerDeps();
-  const poller = startGamepadPolling({ tracker, mode: DEFAULT_POLL_MODE, onPress, deps });
+  const poller = startGamepadPolling({ tracker, mode: DEFAULT_POLL_MODE, onPress, onRelease, deps });
 
   // Ticks drive the countdown and MISSED. Grading itself uses the press timestamps.
   const onTick = () => {
@@ -629,23 +692,10 @@ export function renderPracticePage(
   };
 }
 
-function stepName(buttons: readonly string[], label?: string): string {
-  const name = buttonsName(buttons);
-  return label ? `${name} (${label})` : name;
-}
-
-/** Results other than on time, e.g. "2 early · 1 split". */
-const OTHER_GRADES: readonly [Grade, string][] = [
-  ['EARLY', 'early'],
-  ['LATE', 'late'],
-  ['SPLIT', 'split'],
-  ['PARTIAL', 'partial'],
-  ['WRONG_BUTTON', 'wrong'],
-  ['MISSED', 'missed'],
-];
-function otherResults(counts: Readonly<Record<Grade, number>>): string {
-  const parts = OTHER_GRADES.filter(([g]) => counts[g] > 0).map(([g, name]) => `${counts[g]} ${name}`);
-  return parts.length > 0 ? parts.join(' · ') : '—';
+/** A step's notation with its label: "↓+MK (cr.MK)". */
+function stepName(step: Step): (Node | string)[] {
+  const name = notationNodes(step);
+  return step.label ? [...name, ` (${step.label})`] : name;
 }
 
 function tolText(early: number, late: number): string {
