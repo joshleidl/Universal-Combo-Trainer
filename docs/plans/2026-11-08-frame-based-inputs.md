@@ -58,10 +58,86 @@ Apply the proposal to the project docs before any code (CLAUDE.md).
 - `src/practice/session.ts`: nothing expected beyond passing held buttons (already passed); confirm.
 - **Tests:** `tests/practice/*.test.ts` updated for results at frame close (sounds, stats, countdown after the last step); new format tests for each text in 3.7. Check the app in the browser with the keyboard: a clean run, a same-frame stray, a direction tap.
 
-### M7. Wrap-up
+### M7. Wrap-up (done)
 - `BACKLOG.md`: strike through the same-frame bug. `DECISIONS.md`: gaps filled during M2–M6. `NEXT_SESSION.md`: final state. SPEC §8 stages marked done.
 - Requirements check: every requirement and acceptance criterion in the proposal reported as met / partly met / not met with a pointer to code or test.
 - **Test:** full suite and typecheck.
 
 ## Follow-ups (noticed, not built)
-- (none yet)
+- **Hardware check on a pad** (like direction+button session F): F2 (two buttons in one pad poll) is tested in the engine with identical timestamps, and the browser check used the keyboard only.
+- **Result delay with a large pad offset:** `tick` closes frames using the largest latency offset, so a keyboard player with a calibrated 40 ms pad offset waits ~40 ms longer for every result. Closing by the source actually in use would remove that (ties in with BACKLOG "Block mixed input sources").
+- **Reproducible browser check:** the Playwright script lives in the session scratchpad. A committed script (or a `mise` task) would let later sessions rerun it.
+- **Test helpers read the frame buffer's internals** (`tests/engine/settle.ts` uses `frames.origin` / `frames.open`). A small engine query such as `openFrameEnd(state)` would decouple them.
+
+## Requirements check (M7)
+Status: **met**, **partly met** or **not met**, against the proposal ([docs/proposals/2026-11-08-frame-based-inputs-spec.md](../proposals/2026-11-08-frame-based-inputs-spec.md)) and SPEC §8 "Frame-based inputs".
+
+### Worked examples (section 2)
+| Case | Status | Proof |
+|---|---|---|
+| F1–F12 | met | `tests/engine/frameExamples.test.ts` (table, plus F2 stray naming and F4 report); text for F1, F6, F7, F12 in `tests/practice/frameFeedback.test.ts` |
+| F12 text | met as corrected | "2f late (+38.3 ms, +2.3f)", user's call in M6 (proposal said "1f late") |
+
+### Decisions (section 1)
+| # | Requirement | Status | Proof |
+|---|---|---|---|
+| C1, C7 | SPEC updated before code (§3 "Frames", §4 "Engine API: frames", §8, §9) | met | commit 5f26b72 (M1) |
+| C2, 0 | A tap inside one frame registers; every press remembered | met | `frames.ts` `recordOf`; `frames.test.ts` "F3"; `frameGrading.test.ts` "F3" |
+| C3, 5 | SOCD neutral kept; opposite directions reported only on a failed check | met | `attempt.ts` `withDirectionCheck`; `frameExamples.test.ts` F7, "opposite directions held on a failed check" |
+| C4, 10 | `ms` chord unit kept; same frame always fits | met | `chord.ts` `insideChordWindow`; `chord.test.ts` "F9", "F10" |
+| C5 | Only small text additions in the UI | met | `ui/practice.ts` passes `combo.fps` (one line) |
+| C6 | Same-frame tests rewritten | met | M3/M4 test changes; DECISIONS "M3", "M4" |
+| 1a, A5 | Grid starts at first press / Go; negative frames before Go | met | `frameGrading.test.ts` "first-input start", "countdown start" |
+| 1b, 4a | Held state read at frame end; direction check on end state | met | `withDirectionCheck` reads `rec.position`; `directionExamples.test.ts` O1, O2, O4 |
+| 3 | Press = down on N and not held at end of N−1 | met | `frames.ts` `recordOf`; `frames.test.ts` "the press rule" |
+| 4b, 12 | One press per button per frame, ms from the last down | met | `frames.test.ts` "F5", "counts a button once"; `chord.test.ts` "double tap of a chord button" |
+| 4c, A1, A2 | Lost re-presses and ignored taps reported | met | `attempt.ts` `gradeFrame`, `withLostRepresses`, `withDirectionCheck`; `frameExamples.test.ts` F4, F6, "reports: edge cases" |
+| 6 | Arrival order; late input counts on the open frame | met | `frames.ts` `addInput`; `frameGrading.test.ts` "closing" |
+| 7 | Frame layer replaces per-press grading | met | `attempt.ts` `input` → `advanceTo` → `gradeFrame`; `pendingCheck` removed |
+| 8 | Extra-press rule for every step, either order | met | `gradeFrame`, `chordFrame`; `frameGrading.test.ts` "the extra-press rule"; `frameExamples.test.ts` F2, F2n |
+| 9 | One step per frame | met | `frameGrading.test.ts` "one step per frame" (F11, absolute, relative target 0) |
+| 11 | Results when the frame closes | met | `frameExamples.test.ts` checks each result is absent 0.01 ms before its frame's end and present at it |
+| 13a, 13b, A4 | ms from the target frame's start; "ms, frames" format, one decimal | met | `format.ts` `signedFrameFraction`, `describeStep`; `frameFeedback.test.ts` |
+| 15 | Module, names, record shape settled | met | SPEC §4 "Engine API: frames" (user's call in M1) |
+| A3 | First-input frame 0 at the first down event | met | `attempt.ts` `input`; `frameGrading.test.ts` "frame 0 starts at the first button press" |
+
+### Draft spec (section 3)
+| Rule | Status | Proof |
+|---|---|---|
+| 3.1 Frame record: events, presses, end state, reports | met | `frames.ts` `FrameRecord`; `frames.test.ts` "keeps raw and corrected timestamps" |
+| 3.1 "Every grid frame gets a record once it closes" | met as amended | empty frames aren't stored, but their close runs the time checks (SPEC §3 "Frames" says so); `checkDeadline` |
+| 3.1 Closing by input and by `tick` with the largest offset | met | `attempt.ts` `tick`; `attempt.test.ts` "tick() waits for the largest offset"; `direction.test.ts` "tick uses the largest latency offset" |
+| 3.2 Grading rules 1–3 | met | `gradeFrame`, `checkDeadline`; `attempt.test.ts`, `frameGrading.test.ts` |
+| 3.3 Chords over frames, window, complete, `PARTIAL`, per-press timing | met | `chordFrame`, `gradeChord`, `chordResult`; `chord.test.ts` |
+| 3.4 Directions rules 4–5 and reports | met | `withDirectionCheck`; `direction.test.ts`, `frameExamples.test.ts` |
+| 3.5 First-input start (incl. non-strict clear, step-1 chord) | met | `backToWaiting`; `frameGrading.test.ts` "first-input start"; `chord.test.ts` "a chord as step 1", "a broken step-1 chord" |
+| 3.6 Input rules, known limits | met | SPEC §3 "Input rules" |
+| 3.7 Feedback text and notes; no new elements, timeline unchanged | met | `format.ts`; `frameFeedback.test.ts`; no timeline change |
+
+### Behavior changes (section 4)
+| # | Status | Proof |
+|---|---|---|
+| 1 Results at frame close | met | `frameExamples.test.ts`; practice tests (sounds, countdown at frame close) |
+| 2 Stray on the graded frame is a mistake | met | `frameExamples.test.ts` F2/F2n; browser check (I+U → wrong button) |
+| 3 One frame grades one step | met | `frameGrading.test.ts` "one step per frame" |
+| 4 Lost re-press doesn't count, reported | met | `frameExamples.test.ts` F4 |
+| 5 Double tap = one press, from the second down | met | F5 |
+| 6 `ms` window accepts same-frame presses | met | F9 |
+| 7 Frame fraction and notes in the text | met | `frameFeedback.test.ts`; browser check |
+| 8 `pendingCheck` and stay-open removed | met | `attempt.ts` (no `pendingCheck`, no `complete`) |
+| 9 Unchanged parts (grid, O1–O4, SOCD, ms unit, deltaMs reference, countdown frame 0, taps) | met | `fixedFrameGrid.test.ts`, `gameFrameGap.test.ts`, `directionExamples.test.ts` all pass unchanged in values |
+| 10 Same-frame tests rewritten; table test added | met | M3/M4 commits; `frameExamples.test.ts` |
+
+### Open items (section 5)
+| Item | Status | Proof |
+|---|---|---|
+| SPEC changes listed (C1, C4, C6, C7, decision 0, §3, §7) | met | SPEC.md (M1, plus F12 fix in M6) |
+| NEXT_SESSION tap rule rewritten (decision 0) | met | NEXT_SESSION.md "Reversed from the 2026-11-02 notes" |
+| BACKLOG: block mixed sources; warn unreachable steps; mashing note | met | BACKLOG.md (M1) |
+| BACKLOG: strike the same-frame bug | met | BACKLOG.md (M7) |
+
+### SPEC §8 "Done when"
+| Criterion | Status | Proof |
+|---|---|---|
+| Every F1–F12 passes as a test | met | `tests/engine/frameExamples.test.ts` |
+| Behavior changes hold in the app with a keyboard | partly met | browser check covered a clean run, a same-frame stray, a direction tap and a held direction (DECISIONS "M6"). Not checked in the browser: chords, lost re-press, double tap, countdown mode. All are covered by engine tests. |

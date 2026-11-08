@@ -105,6 +105,13 @@ describe('one step per frame', () => {
     expect(st.results[1]).toMatchObject({ stepIndex: 1, grade: 'WRONG_BUTTON', press: { button: 'HP' } });
   });
 
+  it('two absolute steps can\'t land on the same frame: the second button is a stray', () => {
+    const c = combo([START, step('MP'), step('HP')], { timingMode: 'absolute' });
+    const st = settle(feed(arm(createAttempt(c)), [P('LK', T0), P('MP', at(10)), P('HP', at(10, 8))]));
+    expect(st.endedBy).toBe('wrongButton');
+    expect(st.results[1]).toMatchObject({ stepIndex: 1, grade: 'WRONG_BUTTON', press: { button: 'HP' } });
+  });
+
   it('a relative target of 0 can\'t be on time: the next frame is 1f late', () => {
     const c = combo([START, step('MP'), step('HP', { targetFrame: 0, tolEarly: 0, tolLate: 0 })]);
     const st = settle(feed(arm(createAttempt(c)), [P('LK', T0), P('MP', at(10)), P('HP', at(11))]));

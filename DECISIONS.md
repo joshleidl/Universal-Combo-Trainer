@@ -375,3 +375,9 @@ Practice side, per SPEC §7 "Timing text" and "Frame notes". Tests: `tests/pract
   - Note order: timing, direction note (with opposite directions inside it), ignored taps (one note per direction), lost re-presses (one note per button, even if it happened on several frames).
   - A start step keeps "Start" and still gets its notes.
 - **Browser check** (headless Chromium, keyboard, seeded combos; `playwright-core` installed in the session scratchpad, not the project): a clean run read "On time (+10.3 ms, +0.6f)"; I and U pressed together on step 2 gave "Wrong button: LP at 0f (+8.4 ms, +0.5f)" and ended the attempt; → tapped around MP on one frame gave "… · Direction: none, wanted → · → tapped, not held at end of frame"; → held through MP passed. The longer text wraps inside the step card.
+
+## Frame-based inputs: M7, wrap-up (2026-11-08)
+- BACKLOG "same-frame presses" bug struck through (fixed by the extra-press rule).
+- README: the feedback example now shows the frame fraction, plus one sentence on reading input once per frame.
+- Added a test that two absolute steps can't land on the same frame (the only spec rule without its own test).
+- Requirements check and follow-ups are at the end of [docs/plans/2026-11-08-frame-based-inputs.md](docs/plans/2026-11-08-frame-based-inputs.md).

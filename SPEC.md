@@ -379,6 +379,8 @@ Built from [docs/proposals/2026-11-08-frame-based-inputs-spec.md](docs/proposals
 
 **Done when:** every worked example F1–F12 passes as a test, and the behavior changes in the proposal's section 4 hold in the app with a keyboard.
 
+**Status (2026-11-08):** M1–M7 done on branch `frame-based-input`. The requirements check is at the end of the plan file. Not yet done: a hardware check with a pad (plan, Follow-ups).
+
 ## 9. Out of scope (for now)
 - Motion inputs (quarter-circles, charge inputs), negative edge (a release as an input), and **position steps** (a direction with no button, graded on the frame the stick enters it; dropped from direction+button on 2026-11-02, BACKLOG "Position steps"). Button chords (§3, "Chords") and directions with buttons or chords (§3, "Directions") are supported.
 - **Frame-based input follow-ups** (2026-11-08): input history beyond the previous frame; matching a specific game's frame phase; mixed input sources in one attempt. (Frame snapshots themselves moved into §3 "Frames".)
