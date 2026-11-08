@@ -19,6 +19,7 @@ Requested features and known bugs. Anything that changes the tech stack, grading
   - Should it be a setting (e.g. a "mash-friendly" toggle, off by default) or the new default, and how does it interact with strict mode?
   - How to show ignored mash presses in the timeline and feedback (non-strict mode already gives ignored presses their own lane).
   - This changes grading (SPEC §3), so a proposal and spec update come first ([CLAUDE.md](CLAUDE.md)).
+  - Frame-based inputs (2026-11-08) cover part of this: a double tap inside one frame is one press (SPEC §3 "Frames"). Mashing across frames is unchanged.
 - **Bug: metronome tick on target frames doesn't always work as intended** (reported 2026-10-30). Symptom: ticks were missing entirely in the attempts the user watched on another computer (not the dev machine). Timing mode and combos not yet recorded. Get a repro before fixing. Things to check:
   - Settings are saved per browser (`localStorage`) and the metronome is off by default, so on a new computer it may simply have been off. Rule this out first.
   - Audio may not have started on that computer: browsers block sound until the page gets a user gesture, and a gamepad press may not count as one. Check whether other sounds (countdown, on-time/miss) played there.
@@ -44,3 +45,5 @@ Requested features and known bugs. Anything that changes the tech stack, grading
   - **Chord gap readout on the debug page:** show how far apart near-simultaneous presses land, to help pick a window.
   - **Per-game chord presets** (e.g. a game's known chord leniency).
 - **Security audit fixes** (found 2026-11-02). A crafted share link with huge frame values (e.g. `targetFrame` 1e308) makes the practice timeline loop forever and freeze the tab. Also: the share-link name shows unfiltered in a confirm dialog, there's no CSP, and the deploy workflow gives the build job deploy permissions. Details, fixes and decisions in [docs/proposals/2026-11-02-security-audit.md](docs/proposals/2026-11-02-security-audit.md). Fix 1 adds limits to `validateCombo` (engine API), so SPEC §3 is updated first ([CLAUDE.md](CLAUDE.md)).
+- **Block mixed input sources in one attempt** (from frame-based inputs, 2026-11-08, decision 6). With different latency offsets, keyboard and pad inputs in one attempt can land a frame late (SPEC §3 "Frames", Closing). Today it's a known limit, not enforced.
+- **Warn about steps that can't be on time under one-step-per-frame** (from frame-based inputs, 2026-11-08, decision 9). A relative target of 0, or an early tolerance reaching the previous step's frame, can never be met (SPEC §3 "Grading" rule 2). Saved combos with these get no warning; the editor could warn or validation could reject them.

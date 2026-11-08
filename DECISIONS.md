@@ -323,3 +323,19 @@ Editor and examples, per SPEC §3 "Combo definition" and SPEC §7 "Directions in
   - The grid's group is labelled "Step N direction grid" so it doesn't share a name with the dropdown.
 - **Examples:** "cr." steps (1-frame link: both cr.LK; chord link: cr.MK) are ↓ at least. New "Example: command normal": ↓+LP at least (cr.LP), →+MP exact ("command normal", target 10), HP neutral required (st.HP, target 18); it shows all three kinds of step. The example test now expects 3–5 examples, one with a direction.
 - **Already-seeded examples** (settled in Layer 3: examples are seeded only into empty storage): browsers that already have saved combos keep their old example copies, with the "cr." steps unchanged, and don't get "Example: command normal". No migration, simplest option. Deleting all combos doesn't bring the examples back either; clearing site data does.
+
+## Frame-based inputs: spec (2026-11-08)
+Applied from [docs/proposals/2026-11-08-frame-based-inputs-spec.md](docs/proposals/2026-11-08-frame-based-inputs-spec.md) to SPEC §3 "Frames", "Grading", "Chords", "Directions", "First-input start", §4 "Engine API: frames", §7 and §8. Plan: [docs/plans/2026-11-08-frame-based-inputs.md](docs/plans/2026-11-08-frame-based-inputs.md).
+- **Decision 15 (user's call):** a new pure module `engine/frames.ts` groups inputs into frame records; `attempt.ts` keeps `press` / `release` / `tick` as the outer calls and grades closed frames inside. Records aren't kept after grading; their reports go on `StepResult.reports`. Offered alternatives: also keeping every record in `AttemptResult`, or one `input()` call replacing `press` / `release`.
+- **Countdown negative frames (user's call):** the proposal said records exist "from frame 0 on", but also kept negative frames before Go (A5). Frames before Go are closed and graded from `start()` on, so a press before Go still grades `EARLY`, as before.
+- **Assumptions A1–A5** accepted by the user as written.
+- **Gaps filled (simplest option):**
+  - **Empty frames get no stored record.** The attempt still treats every frame as closing: after each record and on `tick`, it runs the time-based checks (`MISSED`, the chord window running out) for every frame closed since. Same results as storing one record per frame.
+  - **First-input frame 0** starts at the first down event of a non-direction button that isn't already held.
+  - **The stray named in a `WRONG_BUTTON` result** is the frame's first non-awaited button press, in arrival order.
+  - **Non-strict ignores** put one entry per press in `ignoredPresses` (the press's last down event).
+  - **Chord `ms` window:** the first press is the earliest press ms on the chord's first frame. Presses after the window's end, on the frame it ends on, don't count toward the chord.
+  - **A chord's `WRONG_BUTTON` result** lists the chord's earlier presses, then the breaking frame's presses in arrival order, the wrong one last.
+  - **`chordProgress`** shows presses from closed frames only, so the live chord highlight can lag a frame.
+  - **The frame fraction** is shown wherever the ms is, including the wrong-button text.
+  - **The last step** follows the extra-press rule too, so the attempt completes when its frame closes.

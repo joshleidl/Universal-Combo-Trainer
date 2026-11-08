@@ -32,7 +32,7 @@ A **combo** is an ordered list of **steps**. Each step has:
   - `exact`: the held position must be exactly `direction`. On a plain step (no `direction`), the stick must be neutral.
   - `atLeast`: every direction in `direction` must be held, and others may be too (at least ↓ accepts ↙ ↓ ↘). On a plain step, anything is accepted (the behavior before directions existed).
   - The editor defaults new direction steps to `exact` and new plain steps to `atLeast`.
-- `chordWindow` (chords only, required for them): how far apart a chord's presses may be, as `{ size, unit }`. `unit` is `frames` (grid frames, the same grid grading uses; `size` is an integer ≥ 0) or `ms` (corrected timestamps; `size` is a number ≥ 0). Default for a new chord in the editor: 2 frames.
+- `chordWindow` (chords only, required for them): how far apart a chord's presses may be, as `{ size, unit }`. `unit` is `frames` (grid frames, the same grid grading uses; `size` is an integer ≥ 0) or `ms` (corrected timestamps; `size` is a number ≥ 0; presses on the same frame always fit, see "Chords"). Default for a new chord in the editor: 2 frames.
 - `targetFrame`: integer frame the input should land on
 - `tolEarly`: frames early still counted as on time (default 0)
 - `tolLate`: frames late still counted as on time (default 0)
@@ -49,32 +49,50 @@ Combo-level settings:
   - `firstInput` (**default**): the first step's press defines frame 0 and is always graded on time (button correctness only).
   - `countdown`: a visual/audio countdown defines frame 0, and step 1 is graded against its `targetFrame` like any other step.
 
+### Frames
+Added 2026-11-08 from [docs/proposals/2026-11-08-frame-based-inputs-spec.md](docs/proposals/2026-11-08-frame-based-inputs-spec.md). Inputs are grouped by the grid frame they land on, and grading reads one closed frame at a time, the way a fighting game reads its input once per frame. The modeled game is generic: it remembers every button press during a frame and reads the stick's held position at the frame's end. Matching a specific game's frame phase is out of scope.
+
+- **Grid.** One fixed grid per attempt, starting at frame 0 (the first button press in first-input mode, Go in countdown mode). An input lands on grid frame `floor((corrected timestamp − frame 0) / frameMs)`. Frames before Go are negative; in countdown mode they are closed and graded like any other frame from `start()` on, so a press before Go grades `EARLY`.
+- **Frame record.** Every grid frame gets a record once it closes. It holds:
+  - **Events:** every press and release on the frame, in arrival order, with its button, source and raw and corrected timestamps.
+  - **Presses:** the buttons pressed on the frame (below), each with its ms.
+  - **End state:** the buttons and directions held after every input on the frame, and the stick position they resolve to (SOCD neutral, "Directions" rule 2).
+  - **Reports:** lost re-presses, ignored direction taps, and opposite directions held at the frame's end (below).
+  - A frame with no inputs has an empty record with the previous frame's end state. The engine doesn't need to store it; it only has to run the time-based checks (`MISSED`, a chord window running out) for it when it closes.
+- **Press.** Button B is pressed on frame N when B has a down event on N and B was not held at the end of frame N−1. A button counts at most once per frame; extra down events of the same button on that frame are dropped. The press's ms is the corrected timestamp of B's **last** down event on the frame. For the first frame of an attempt, "the end of frame N−1" means the held state just before it starts: what was held when the attempt armed, plus every input before it. A button held at arm and still held gives no press until it is released and pressed again.
+- **A tap inside one frame registers.** A button pressed and released on the same frame is pressed on that frame. Direction presses are remembered on the frame too, but they only feed reports; a direction check reads the end state ("Directions" rule 4).
+- **Lost re-press.** If B was held at the end of N−1 and is released and pressed again on N, it is not pressed on N. The result of the step awaited on frame N reports it (button, frame, ms), even if that step is graded on a later frame. If no step is awaited (before frame 0, or after the attempt ends), it isn't reported.
+- **Closing.** Inputs are taken in arrival order. Frame N closes when an input arrives whose corrected time is at or past N's end, or when `tick(now)` finds `now − largest latency offset` at or past N's end. An input whose corrected time falls on an already closed frame counts on the open frame (the first frame not yet closed). Mixing keyboard and pad in one attempt isn't supported (known limit: such inputs can land a frame late).
+- **Grading reads closed frames.** The engine grades one closed frame at a time against the awaited step. A step's result, feedback and sound come when its frame closes: up to one frame plus the largest latency offset after the press.
+
 ### Grading (per step)
-1. The press lands on grid frame `floor((input timestamp − frame 0) / frameMs)`, after applying the latency offset (§6). The reference frame is the previous input's grid frame (`relative`) or frame 0 (`absolute`). `elapsedMs` = input timestamp − start of the reference frame.
-2. `inputFrame` = press's grid frame − reference frame.
-3. `deltaFrames = inputFrame − targetFrame`.
-4. Result:
-   - `ON_TIME` if `−tolEarly ≤ deltaFrames ≤ tolLate`
-   - `EARLY` if `deltaFrames < −tolEarly`
-   - `LATE` if `deltaFrames > tolLate`
-   - `WRONG_BUTTON` if a different mapped **button** is pressed while this step is awaited (direction presses never count here; see "Directions")
-   - `MISSED` if no input arrives within `targetFrame + tolLate + timeoutFrames` (default timeout 30 frames)
-5. Always report `deltaFrames` and raw `deltaMs` (relative to the start of the target frame) so feedback can show "2f late (+31.4 ms)".
+1. When frame N closes, its button presses (directions aside) are compared with the awaited step. The reference frame is the previous graded step's frame (`relative`) or frame 0 (`absolute`).
+   - **No presses:** nothing happens, unless N is the step's last accepted frame (`targetFrame + tolLate + timeoutFrames` past the reference frame; default timeout 30 frames), in which case the step is `MISSED`. A chord that is collecting pauses the timer ("Chords").
+   - **Exactly the step's button** (single-button step): graded on N:
+     - `inputFrame` = N − reference frame.
+     - `deltaFrames = inputFrame − targetFrame`.
+     - `deltaMs` = the press's ms − start of the target frame; `elapsedMs` = the press's ms − start of the reference frame.
+     - `ON_TIME` if `−tolEarly ≤ deltaFrames ≤ tolLate`; `EARLY` if `deltaFrames < −tolEarly`; `LATE` if `deltaFrames > tolLate`.
+     - A step with a direction check then runs it on N's end state ("Directions").
+   - **The step's button plus any other button** (extra press, for every step, chords included): strict = `WRONG_BUTTON`, the attempt ends; non-strict = every press on N is logged as ignored and the step keeps waiting. The order the presses arrived in doesn't matter.
+   - **Only other buttons:** `WRONG_BUTTON` (strict, the attempt ends) or ignored (non-strict, the step keeps waiting). Direction presses never count here ("Directions").
+2. **One step per frame.** After a step is graded on frame N, the next step's presses count from frame N+1. A relative target of 0, or an early tolerance that reaches the previous step's frame, can't be met. Two absolute steps can't land on the same frame.
+3. Always report `deltaFrames` and raw `deltaMs` (relative to the start of the target frame) so feedback can show "2f late (+31.4 ms, +1.9f)" (§7).
 
 ### Chords
 A single-button step is graded exactly as above. A chord step (2+ buttons) works like this:
-1. **Collecting.** The chord starts with the first press of one of its buttons. While it is collecting, the `MISSED` timer is paused (it is counted from the chord's first press: a chord whose first press arrives in time can't become `MISSED`). The first press is still subject to the `MISSED` rule: a first press past the step's deadline is `MISSED`.
-2. **Window.** Every chord button must be pressed within `chordWindow` of the first press: in `frames`, the last press's grid frame − the first press's grid frame ≤ `size`; in `ms`, last corrected timestamp − first corrected timestamp ≤ `size`.
-3. **Complete.** When the last missing button is pressed inside the window, the chord is complete. It stays open until the end of the grid frame it completed on, so a press on that same frame counts as an extra press (a game reading buttons once per frame sees them together). Then it is graded. Its result appears at most one frame after it completes.
-4. **Graded press = the last press** (the one that completed the chord). `inputFrame`, `deltaFrames`, `deltaMs` and `elapsedMs` are that press's. The next relative step counts from the frame it landed on.
-5. **Each press also gets its own timing** (`EARLY` / `ON_TIME` / `LATE` against the step's window), reported per press. Result:
+1. **Collecting** over frames. The chord starts on the first closed frame with one of its buttons pressed. Each later closed frame's presses must be chord buttons not yet pressed. While it is collecting, the `MISSED` timer is paused (a chord whose first press lands in time can't become `MISSED`). The first frame is still subject to the `MISSED` rule: a step whose last accepted frame closes with no chord press is `MISSED`.
+2. **Window.** In `frames`: last press's frame − first press's frame ≤ `size`. In `ms`: presses on the **same frame as the first press always fit**; a press on a later frame must be within `size` ms of the first press (press ms per "Frames"; the first press is the earliest press ms on the chord's first frame).
+3. **Complete** on the frame the last missing button is pressed on. Any other press on that frame is an extra press ("Grading" rule 1). Every step is graded when its frame closes, so the chord's result is known when that frame closes.
+4. **Graded press = the last press** (the one that completed the chord; the latest on its frame if two did). `inputFrame` is the completing frame's; `deltaFrames`, `deltaMs` and `elapsedMs` follow from it and that press's ms. The next relative step counts from that frame.
+5. **Each press also gets its own timing** (`EARLY` / `ON_TIME` / `LATE` against the step's window, by the press's frame), reported per press. Presses on the same frame get the same timing, so they can't make a `SPLIT` between themselves. Result:
    - `SPLIT` if the presses don't all get the same grade (any mix of early, on time and late).
    - Otherwise that grade (`ON_TIME`, `EARLY` or `LATE`).
 6. **Mistakes** (exact match):
-   - `WRONG_BUTTON` if a button that isn't in the chord is pressed while the chord is awaited (directions don't count), or one of its buttons is pressed twice, or any press lands on the frame the chord completed on.
-   - `PARTIAL` if the window runs out with only some of the chord's buttons pressed. It is known once the window runs out, even if no other press arrives.
-   - Strict mode applies to both: strict ends the attempt; non-strict logs every press of the broken chord as ignored, resets the chord, and the step keeps waiting.
-7. **First-input start with a chord as step 1:** the chord's first press is frame 0. Timing isn't checked (button correctness only, as for any start step). The next relative step counts from the frame the chord completed on.
+   - `WRONG_BUTTON` if a button that isn't in the chord is pressed while the chord is awaited (directions don't count), or one of its buttons is pressed again on a later frame, or any other press lands on the frame the chord completed on.
+   - `PARTIAL` if the window runs out with only some of the chord's buttons pressed. It is known when the frame that ends the window closes, even if no other press arrives. On that frame, presses after an `ms` window's end don't count toward the chord.
+   - Strict mode applies to both: strict ends the attempt; non-strict logs every press of the broken chord (and every press on the breaking frame) as ignored, resets the chord, and the step keeps waiting.
+7. **First-input start with a chord as step 1:** the chord's first press sets frame 0, and the chord rules run over frames. Timing isn't checked (button correctness only, as for any start step). The next relative step counts from the frame the chord completed on.
 
 ### Directions
 Directions are the absolute `UP` / `DOWN` / `LEFT` / `RIGHT` controls. There is no forward/back and no facing side.
@@ -82,36 +100,42 @@ Directions are the absolute `UP` / `DOWN` / `LEFT` / `RIGHT` controls. There is 
 1. **Held state.** The engine knows which directions are held at every moment: the held set at the time the attempt arms, then every press and release after that, on latency-corrected timestamps. Directions held from before the attempt count.
 2. **Position.** The held directions resolve to one position. Opposite directions held together cancel out (SOCD neutral): LEFT+RIGHT gives no horizontal direction, UP+DOWN gives no vertical one. For example, LEFT+RIGHT+DOWN is ↓. "The position at the end of a frame" is the position after every press and release on that frame.
 3. **Direction presses are never mistakes.** Pressing or releasing a direction never grades a step as wrong and never ends an attempt. It only changes the held position. (Before this, a direction press during a button step was `WRONG_BUTTON` in strict mode; that rule is removed.)
-4. **The check.** A step with a `direction` and buttons, or a plain step set to `exact`, checks the held position at the **end of the grid frame its graded press landed on**: the button for a single-button step, the last press for a chord. Presses and releases anywhere on that frame count, so →+MP pressed together passes in either order.
+4. **The check.** A step with a `direction` and buttons, or a plain step set to `exact`, checks the held position at the **end of the grid frame it was graded on**: the frame of the button for a single-button step, the completing frame for a chord. Presses and releases anywhere on that frame count, so →+MP pressed together passes in either order.
    ```
    frame:        9            10            11
                       MP(170 ms)   →(173 ms)      → held at the end of frame 10: passes
                  →━━━━━━━━┛(168 ms) MP(171 ms)    → not held at the end of frame 10: missing
    ```
-   The result is known when that frame ends, up to one frame after the press (like a chord). A press or release arriving later first closes any check that is due by its own corrected time, and `tick()` closes due checks with `now` minus the largest latency offset (as for chords and `MISSED`). A plain step set to `atLeast` has no check and is graded on its press, as before.
-5. **Extra presses while a check is pending.** Until the frame ends, the step stays open, as a complete chord does. A button press on that frame is an extra press:
-   - In strict mode the step is `WRONG_BUTTON` and the attempt ends. This is a button mistake, so rule 7 doesn't apply.
-   - In non-strict mode the step's press and the extra press are logged as ignored, and the step keeps waiting.
-   - Direction presses and releases on that frame aren't extra presses; they only change the held position the check reads.
-   - A chord with a direction already follows this rule through its completing frame.
-   - Cost: a next step with a relative target of 0 can't be pressed on that frame (the same cost chords have).
+   The check reads the graded frame's end state ("Frames"), so its result comes when that frame closes, like every step's. A plain step set to `atLeast` has no check.
+5. **Extra presses on the graded frame** follow "Grading" rule 1 (extra press), which covers every step. Direction presses and releases on that frame aren't extra presses; they only change the held position the check reads. An extra button press is a button mistake, so rule 7 doesn't apply.
+   - **Reports on a failed check** (none on a passing one):
+     - **Ignored direction tap:** a wanted direction was pressed on the graded frame ("Frames", press rule) but isn't held at its end.
+     - **Opposite directions:** an opposite pair (← and →, or ↑ and ↓) was held at the frame's end.
 6. **Result.** The step's timing is graded as usual (single press or chord rules). If the check fails, the grade is replaced:
    - `PARTIAL` (missing direction) when the held position is a strict part of the wanted one, including nothing held (e.g. nothing for →; ↓ for ↘).
    - `WRONG_BUTTON` (wrong direction) otherwise: a different direction, an extra direction on an exact step, or any direction on an exact plain step.
    - The timing fields (`inputFrame`, `deltaFrames`, `deltaMs`, and per-press timing for chords) are kept, and the result records the held and wanted positions and the cause (`missing` / `wrong`).
 7. **A direction mistake never ends the attempt, in strict or non-strict mode.** The attempt moves on, and the next relative step counts from the graded press's frame. The attempt isn't a success.
-8. **Chords with a direction.** The chord rules run first. A chord that breaks (wrong or extra button, or `PARTIAL` because its window ran out) is graded by the chord rules and the direction isn't checked. A complete chord is checked at the end of the frame it completed on (the frame it already stays open until). A failed check replaces the chord's grade, including `SPLIT`.
+8. **Chords with a direction.** The chord rules run first. A chord that breaks (wrong or extra button, or `PARTIAL` because its window ran out) is graded by the chord rules and the direction isn't checked. A complete chord is checked at the end of the frame it completed on. A failed check replaces the chord's grade, including `SPLIT`.
 9. **First-input start.** A direction+button step 1: the button press is frame 0, and the direction is checked at the end of frame 0.
+
+### First-input start
+- Frame 0 starts at the first down event of a mapped button (not a direction) that isn't already held, on its corrected time. Directions before it only change the held state.
+- Frame 0's record is graded as step 1 when it closes: button correctness (including the extra-press rule) and any direction check. Timing fields are 0.
+- If step 1 fails in non-strict mode, the attempt goes back to waiting and frame 0 is cleared; the held state is kept. The next button press edge sets a new frame 0.
+- A step-1 chord: its first press sets frame 0, and the chord rules run over frames.
 10. **`MISSED`** is unchanged: holding a direction never starts or pauses the timer.
 
 ### Input rules
-- Buttons count on the **press edge** (up to down). Directions count by what's held (see "Directions"). Holds and key auto-repeat of buttons are ignored.
+- Buttons count by the **press rule** in "Frames" (a down event on a frame, not held at the end of the frame before). Directions count by what's held (see "Directions"). Holds and key auto-repeat of buttons are ignored.
 - **Strict mode** (default on): a wrong button ends the attempt with `WRONG_BUTTON`. With strict mode off, wrong presses are logged but ignored, and the step keeps waiting.
 - An attempt ends when all steps are graded, on `MISSED`, or on a strict-mode `WRONG_BUTTON` or `PARTIAL` from a button or chord mistake. Direction mistakes never end it.
-- A chord's presses are ordinary press edges; the input layer doesn't change. Known limits:
+- A chord's presses are ordinary presses ("Frames"); the input layer doesn't change. Known limits:
   - Some keyboards can't register certain 3+ key combinations (rollover / ghosting), including direction keys with buttons (e.g. WASD plus U/I/O).
   - Pad buttons seen in the same poll share one timestamp.
   - The keyboard tracker forgets keys held across a window blur, so such a key reads as up until it's pressed again. Pad held state is always accurate (each poll reads the full state).
+  - Mixing keyboard and pad input in one attempt isn't supported and isn't blocked: with different latency offsets, inputs can land a frame late ("Frames", Closing).
+  - With rAF gamepad polling (~1 frame), presses from one poll share a timestamp and frame; frame records can't be finer than the poll.
 
 ## 4. Architecture
 
@@ -120,7 +144,8 @@ src/
   engine/        # pure timing logic, no DOM; fully unit tested
     types.ts       Combo, Step, Settings, StepResult, AttemptResult
     timing.ts      frame/ms conversion, grading function
-    attempt.ts     attempt state machine: idle → armed → running → done
+    frames.ts      frame layer: groups inputs into frame records (press rule, end state, reports)
+    attempt.ts     attempt state machine: idle → armed → running → done; grades closed frames
     chord.ts       chord helpers: window checks, per-press timing, split rule
     direction.ts   direction helpers: held set → position (SOCD), matching, mistake cause
   input/         # converts keyboard + gamepad into timestamped press events
@@ -197,6 +222,24 @@ Additions for "Directions" (§3), approved by the user on 2026-11-02. `Grade` an
   - `AttemptState` gains `held: readonly ButtonId[]` (directions only) and `pendingCheck`, an end-of-frame check waiting to close (like `chord`). New query `heldPosition(state): HeldPosition` for the live input display.
   - `AttemptState` also gains `positionLog: readonly { t: number; position: HeldPosition }[]` (approved by the user on 2026-11-02, session C): the position at arm (`t` = −Infinity), then each change of the resolved position with its corrected time. `attemptResult` turns it into `positions` once frame 0 is known; in first-input mode frame 0 isn't known until the first button press, so `positions` can't be built live.
 - **Practice** (`practice/session.ts`): new `practiceRelease(state, ev)`. `createPractice` and restarts pass the held set to `arm`.
+- Changed by "Engine API: frames" (2026-11-08): `pendingCheck` is gone, and `held` now holds buttons too.
+
+### Engine API: frames
+For "Frames" (§3), settled by the user on 2026-11-08 (proposal decision 15). `Grade`, `AttemptEnd`, `AttemptResult` and the outer calls don't change.
+- **Outer calls stay** `press(state, ev)`, `release(state, ev)` and `tick(state, now)`. Inside, every input goes to the frame layer first; the attempt grades each frame record as it closes. The practice layer and UI call the engine as before.
+- **Frame layer** (`engine/frames.ts`, pure, no attempt knowledge):
+  - `FrameEvent = { button, down: boolean, ev: PressEvent | ReleaseEvent, t }` (`t` is the corrected timestamp).
+  - `FramePress = { button, ev: PressEvent, t }`: one per button per frame, `ev` and `t` from its last down event, in the order of each button's first down event.
+  - `OppositePair = 'LEFT_RIGHT' | 'UP_DOWN'`.
+  - `FrameRecord = { frame, events: FrameEvent[], presses: FramePress[], held: ButtonId[], position: HeldPosition, lostRepresses: FramePress[], directionTaps: ButtonId[], opposites: OppositePair[] }`. `presses` holds buttons and directions; `held` is the end state (buttons and directions), `position` its SOCD position; `directionTaps` are directions pressed on the frame and not held at its end; `opposites` are pairs held at its end.
+  - `FrameBuffer`: the grid origin (or none yet), the open frame, the last closed frame, and the held set.
+  - Functions: `createFrames(fps, held)`, `setOrigin(buf, frame0)`, `clearOrigin(buf)`, `addInput(buf, ev, t, down) → { buf, closed }` (closes the open frame first when `t` is past it; with no origin it only changes the held set), `closeBefore(buf, frame) → { buf, closed }` (closes the open frame if it's before `frame`), `lastClosedFrame(buf)`. Frames with no inputs get no record; `lastClosedFrame` tells the attempt how far time has moved.
+- **Attempt** (`engine/attempt.ts`):
+  - `AttemptState` loses `pendingCheck` and `PendingChord.complete`; it gains `frames: FrameBuffer` and `lostRepresses` (collected for the awaited step until it's graded). `PendingChord.presses` record each press's frame.
+  - `AttemptState.held` holds buttons and directions (the press rule needs held buttons). `arm(state, held?)` keeps both; `release` updates both. `heldPosition` is unchanged (it resolves directions only).
+  - `frame0` is still set when step 1 is graded (first-input) or by `start()` (countdown); the frame layer keeps its own origin while frame 0 is open.
+  - `chordProgress` shows presses from closed frames only.
+- **Results** (`engine/types.ts`): `StepResult` gains `reports?: { lostRepresses?: { button, frame, timestamp }[]; directionTaps?: ButtonId[]; opposites?: OppositePair[] }`. `frame` is the grid frame since frame 0, `timestamp` the corrected time. `directionTaps` and `opposites` are set only on a failed direction check; `lostRepresses` on the step awaited when they happened. Frame records aren't kept in `AttemptResult`.
 
 ### Saved data
 - **Storage** stays `uct.combos.v1`. A step without `direction` or `directionMatch` is a plain at-least step, so old steps load as they were.
@@ -248,7 +291,13 @@ Findings so far:
 
 ## 7. Feedback and UI
 
-- **Practice view:** shows the combo as a row of steps. Each step lights up as it is graded, colored by result (on time / early / late / split / partial / wrong / missed) with "±Nf (±X ms)".
+- **Practice view:** shows the combo as a row of steps. Each step lights up as it is graded, colored by result (on time / early / late / split / partial / wrong / missed) with "±Nf (±X ms, ±Y.Yf)".
+- **Timing text** (frame-based inputs, 2026-11-08): "On time (+3.3 ms, +0.2f)", "On time, 1f late (+20.1 ms, +1.2f)", "2f early (−31.4 ms, −1.9f)", "1f late (+38.3 ms, +2.3f)". The frame fraction is `deltaMs / frameMs`, one decimal, with the same sign as the ms. It's shown wherever the ms is.
+- **Frame notes**, after " · " as for the direction note:
+  - Ignored direction tap (failed check only): "→ tapped, not held at end of frame".
+  - Opposite directions (failed check only), inside the direction note: "Direction: none, wanted → (← and → both held)".
+  - Lost re-press: "LP pressed again while held (not counted)".
+  - No new elements, colors or sounds; the timeline doesn't show the reports.
 - **Timeline view:** a horizontal frame ruler showing target windows vs actual inputs for the last attempt.
 - **Session stats:** per-step on-time rate, a count of each other result (early, late, split, partial, wrong, missed), average and spread of `deltaFrames`, and a running streak. Reset per session.
 - **Optional audio:** a metronome tick on target frames and distinct sounds for on-time vs miss. Off by default.
@@ -259,7 +308,7 @@ Findings so far:
 - **Notation:** arrows (↙ ↓ ↘ ← → ↖ ↑ ↗, "•" for neutral), e.g. →+MP, ↓+MK, ↘+HP, ←+LP+LK. A plain step set to exact shows "(neutral)". Exact and at-least directions are told apart by **color, not a symbol** (user's call, session E): the arrow is blue when exact, orange when at least, and "(neutral)" is blue (exact). Blue vs orange was picked to stay distinct with color blindness, and each color keeps at least 4.5:1 contrast on every card background in light and dark themes. Hovering an arrow says "exactly ↓" / "at least ↓", and screen readers read the same. A plain at-least step has no arrow and no color. The practice page (step cards, status line, timeline lane names, stats rows) and the editor share this notation (`practice/format.ts`, drawn by `ui/notation.ts`).
 - **Editor:** each step row has a direction dropdown ("• none", "↘ down-right", …). Opening it (or a button beside it) shows a 3×3 grid in a panel under the step, laid out like a stick gate; picking there sets the dropdown. An exact / at-least toggle sits next to it ("neutral required" / "any direction" on plain steps). Button selects don't offer directions (removed 2026-11-02 with single-direction steps). No new hint or warning text.
 - **Practice page:** a live input display (stick gate and pressed buttons), always shown, reading held state from the practice layer. It shows input without judging it.
-- **Feedback text:** the usual timing text, then a direction note on a mistake: "On time (+5.2 ms) · Direction: ↘, wanted → exactly". The note says "wanted → exactly" when the step is exact and the held position contains the wanted one, "wanted any ↓" for at least, "wanted neutral" for exact plain steps, and "none" when nothing is held.
+- **Feedback text:** the usual timing text, then a direction note on a mistake: "On time (+5.2 ms, +0.3f) · Direction: ↘, wanted → exactly". The note says "wanted → exactly" when the step is exact and the held position contains the wanted one, "wanted any ↓" for at least, "wanted neutral" for exact plain steps, and "none" when nothing is held.
 - **Timeline:** one stick lane above the step lanes: one segment per position from frame 0, tagged with its arrow, neutral left empty, using the position after SOCD at each frame's end (`AttemptResult.positions`). Drawn only if the combo has a direction step or a direction was held. Each graded button dot of a step that ran a check is tagged with the held position, red on a direction mistake.
 - **Stats:** direction mistakes count toward average and spread (the button press was right). "Other results" labels them separately: "wrong direction", "missing direction".
 - **Sounds:** a direction mistake plays the "step off" sound (it doesn't end the attempt). No new sound or color: colors stay the grade's (pink for `PARTIAL`, red for `WRONG_BUTTON`).
@@ -318,9 +367,21 @@ Built from [docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md](docs/propo
 
 **Done when:** every in-scope case in the proposal's section 2 passes as a test, and direction+button steps can be built, saved, practiced and reviewed on the timeline with a keyboard or controller.
 
+### Frame-based inputs (2026-11-08)
+Built from [docs/proposals/2026-11-08-frame-based-inputs-spec.md](docs/proposals/2026-11-08-frame-based-inputs-spec.md); plan in [docs/plans/2026-11-08-frame-based-inputs.md](docs/plans/2026-11-08-frame-based-inputs.md). One review stop per milestone; each ends with `mise run test` and `mise run typecheck` passing.
+- **M1. Spec:** apply the proposal to SPEC.md, log decisions in DECISIONS.md, update BACKLOG.md, settle decision 15 (§4 "Engine API: frames"). No feature code.
+- **M2. Frame layer:** `engine/frames.ts` and its tests, not yet wired in.
+- **M3. Engine, single-button steps:** grading per closed frame, extra-press rule, one step per frame, `MISSED`, both start modes, the direction check on the end state; `pendingCheck` removed.
+- **M4. Engine, chords:** collecting over frames, the window (same-frame rule for `ms`), completion, `PARTIAL`, `SPLIT`.
+- **M5. Engine, reports:** lost re-presses, ignored direction taps, opposite directions; a table test of the proposal's worked examples F1–F12.
+- **M6. Practice side:** feedback text with the frame fraction and the notes; practice tests for results at frame close.
+- **M7. Wrap-up:** BACKLOG, DECISIONS, NEXT_SESSION; requirements check.
+
+**Done when:** every worked example F1–F12 passes as a test, and the behavior changes in the proposal's section 4 hold in the app with a keyboard.
+
 ## 9. Out of scope (for now)
 - Motion inputs (quarter-circles, charge inputs), negative edge (a release as an input), and **position steps** (a direction with no button, graded on the frame the stick enters it; dropped from direction+button on 2026-11-02, BACKLOG "Position steps"). Button chords (§3, "Chords") and directions with buttons or chords (§3, "Directions") are supported.
-- **Frame snapshots:** grouping every press, release and held input on one grid frame into a single snapshot that grading reads at once, the way a game reads input once per frame. Today the engine grades press by press, so presses on the same frame can give different results depending on their order (BACKLOG, "same-frame presses" bug). Snapshots would replace the one-off end-of-frame rules (chord completion, the chord window in frames, and the direction check in §3 "Directions") without changing their behavior. Already decided for it: a tap pressed and released within one frame doesn't register, as in a game that reads held state once per frame; and the chord window's `ms` unit becomes obsolete, since snapshots group presses by frame. Found during the direction+button interview; see [docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md](docs/proposals/2026-11-02-dir-plus-button-inputs-spec.md).
+- **Frame-based input follow-ups** (2026-11-08): input history beyond the previous frame; matching a specific game's frame phase; mixed input sources in one attempt. (Frame snapshots themselves moved into §3 "Frames".)
 - **Direction+button follow-ups** (found during the same interview, 2026-11-02): facing / side switching (forward and back relative to the character; steps use absolute `RIGHT` / `LEFT`); a per-combo SOCD rule (the proposal resolves opposite directions to neutral); numpad notation as a display option (the proposal uses arrows); setting a step's direction by holding it on the stick; a "return to neutral" position step; a show/hide toggle for the live input display.
 - Reading game memory or game frame data.
 - Accounts, online leaderboards, any backend.
