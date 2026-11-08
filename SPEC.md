@@ -292,7 +292,7 @@ Findings so far:
 ## 7. Feedback and UI
 
 - **Practice view:** shows the combo as a row of steps. Each step lights up as it is graded, colored by result (on time / early / late / split / partial / wrong / missed) with "±Nf (±X ms, ±Y.Yf)".
-- **Timing text** (frame-based inputs, 2026-11-08): "On time (+3.3 ms, +0.2f)", "On time, 1f late (+20.1 ms, +1.2f)", "2f early (−31.4 ms, −1.9f)", "1f late (+38.3 ms, +2.3f)". The frame fraction is `deltaMs / frameMs`, one decimal, with the same sign as the ms. It's shown wherever the ms is.
+- **Timing text** (frame-based inputs, 2026-11-08): "On time (+3.3 ms, +0.2f)", "On time, 1f late (+20.1 ms, +1.2f)", "2f early (−31.4 ms, −1.9f)", "2f late (+38.3 ms, +2.3f)". Frames count from the target frame, as before (`deltaFrames`). The frame fraction is `deltaMs / frameMs`, one decimal, with the same sign as the ms. It's shown wherever the ms is.
 - **Frame notes**, after " · " as for the direction note:
   - Ignored direction tap (failed check only): "→ tapped, not held at end of frame".
   - Opposite directions (failed check only), inside the direction note: "Direction: none, wanted → (← and → both held)".

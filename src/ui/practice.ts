@@ -307,7 +307,7 @@ export function renderPracticePage(
           ),
           el('span', { className: 'ps-label', textContent: step.label ?? '' }),
           el('span', { className: 'ps-target', textContent: target }),
-          el('span', { className: 'ps-result', textContent: r ? describeStep(r, isStart, step) : '' }),
+          el('span', { className: 'ps-result', textContent: r ? describeStep(r, isStart, step, combo.fps) : '' }),
         ]);
       }),
     );

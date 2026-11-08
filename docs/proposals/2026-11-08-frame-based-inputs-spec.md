@@ -54,7 +54,7 @@ Out of scope: input history beyond the previous frame; matching a specific game'
 | 11 | Results arriving up to a frame late | **Accept the delay**: result, feedback and sound when the frame closes | One result, never changed | Plain steps are no longer graded instantly |
 | 12 | Which timestamp gives a press its ms | **The last down event** of that button on its frame | The press still held at the frame's end | — |
 | 13a | What early/late ms is measured from | **Start of the target frame** (today) | No change | — |
-| 13b | How early/late is written | **Both**: "1f late (+38.3 ms, +2.3f)" | Both readings; ms kept | Rounding and wording assumed (A4) |
+| 13b | How early/late is written | **Both**: "2f late (+38.3 ms, +2.3f)" (corrected in M6 from "1f late"; frames count from the target) | Both readings; ms kept | Rounding and wording assumed (A4) |
 | 14 | Which behaviors and tests change | Output, not asked (C6): section 4 | — | — |
 | 15 | Module location, API names, record shape | **Deferred** (user: no default) | — | Settle in the SPEC step before code |
 
@@ -78,7 +78,7 @@ Out of scope: input history beyond the previous frame; matching a specific game'
 | F9 | LP+LK, window 5 ms | LP↓ 168, LK↓ 181 (both on frame 10, 13 ms apart) | Chord complete on frame 10 (same frame always passes) |
 | F10 | LP+LK, window 5 ms | LP↓ 180 (frame 10), LK↓ 186 (frame 11) | 6 ms apart on different frames: `PARTIAL` |
 | F11 | step 2 MP, step 3 HP (relative target 0) | MP↓ 170, HP↓ 174 | Step 2 `WRONG_BUTTON` (HP is a stray on its frame), attempt ends |
-| F12 | MP | MP↓ 205 (frame 12) | `LATE`: "1f late (+38.3 ms, +2.3f)" |
+| F12 | MP | MP↓ 205 (frame 12) | `LATE`: "2f late (+38.3 ms, +2.3f)" (corrected in M6 from "1f late") |
 
 ---
 
@@ -138,7 +138,7 @@ Out of scope: input history beyond the previous frame; matching a specific game'
 - Known limits gain: mixed keyboard and pad input in one attempt isn't supported (§3 "Frames", Closing).
 
 ### 3.7 §7 Feedback text
-- Timing: "On time (+3.3 ms, +0.2f)", "On time, 1f late (+20.1 ms, +1.2f)", "2f early (−31.4 ms, −1.9f)", "1f late (+38.3 ms, +2.3f)". The frame fraction is `deltaMs / frameMs`, one decimal, with the same sign as the ms.
+- Timing: "On time (+3.3 ms, +0.2f)", "On time, 1f late (+20.1 ms, +1.2f)", "2f early (−31.4 ms, −1.9f)", "2f late (+38.3 ms, +2.3f)". The frame fraction is `deltaMs / frameMs`, one decimal, with the same sign as the ms.
 - Notes, after " · " as for the direction note:
   - Ignored direction tap: "→ tapped, not held at end of frame".
   - Opposite directions, inside the direction note: "Direction: none, wanted → (← and → both held)".

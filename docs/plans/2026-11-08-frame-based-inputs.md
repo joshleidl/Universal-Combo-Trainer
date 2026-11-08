@@ -52,7 +52,7 @@ Apply the proposal to the project docs before any code (CLAUDE.md).
 - `src/engine/attempt.ts`: collect lost re-presses for the awaited step until it's graded (A1); on a failed direction check, add ignored direction taps and opposite pairs from the graded frame (A2, decision 5).
 - **Tests first:** `tests/engine/frameExamples.test.ts`, one row per worked example F1–F12 (proposal section 2), checking grade, timing fields, when the result is known, and reports. Plus report edge cases: none on a passing check, none when no step is awaited.
 
-### M6. Practice side and feedback text
+### M6. Practice side and feedback text (done)
 - `src/practice/format.ts`: frame fraction (`deltaMs / frameMs`, one decimal, sign of the ms) wherever ms is shown; notes after " · ": "→ tapped, not held at end of frame", "(← and → both held)" inside the direction note, "LP pressed again while held (not counted)". `describeStep` takes the fps.
 - `src/ui/practice.ts`: pass the fps (text only, C5).
 - `src/practice/session.ts`: nothing expected beyond passing held buttons (already passed); confirm.

@@ -365,3 +365,13 @@ Engine only, per SPEC §3 "Frames" (lost re-press), "Directions" rule 5 (reports
 - **Kept across a non-strict step-1 restart** (simplest option): when frame 0 is cleared, step 1 is still the awaited step, so its lost re-presses stay; their frame numbers are from the cleared grid.
 - **Ignored direction taps** count only wanted directions (those in the step's position); a tap of another direction isn't reported. **Opposite pairs** are every pair held at the graded frame's end, on a failed check.
 - **F12 wording gap** (for M6): the proposal's text "1f late (+38.3 ms, +2.3f)" counts frames past the late window, but today's text counts `deltaFrames` from the target ("2f late"). The engine reports `deltaFrames` 2, unchanged.
+
+## Frame-based inputs: M6, feedback text (2026-11-08)
+Practice side, per SPEC §7 "Timing text" and "Frame notes". Tests: `tests/practice/frameFeedback.test.ts`.
+- **F12 wording (user's call):** frames keep counting from the target frame (`deltaFrames`), so F12 reads "2f late (+38.3 ms, +2.3f)". The proposal's "1f late" was corrected in SPEC §7 and the proposal.
+- **Gaps filled (simplest option):**
+  - `describeStep(r, isStart, step?, fps?)`: the fraction shows only when `fps` is given; the practice page always passes the combo's fps. Calls without it keep the old text.
+  - The fraction's sign is the sign the ms shows after rounding, so "+0.0 ms" never pairs with "−0.0f".
+  - Note order: timing, direction note (with opposite directions inside it), ignored taps (one note per direction), lost re-presses (one note per button, even if it happened on several frames).
+  - A start step keeps "Start" and still gets its notes.
+- **Browser check** (headless Chromium, keyboard, seeded combos; `playwright-core` installed in the session scratchpad, not the project): a clean run read "On time (+10.3 ms, +0.6f)"; I and U pressed together on step 2 gave "Wrong button: LP at 0f (+8.4 ms, +0.5f)" and ended the attempt; → tapped around MP on one frame gave "… · Direction: none, wanted → · → tapped, not held at end of frame"; → held through MP passed. The longer text wraps inside the step card.

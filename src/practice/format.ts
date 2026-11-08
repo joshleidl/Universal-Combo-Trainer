@@ -1,8 +1,20 @@
 // Feedback text for results (SPEC §7), e.g. "2f late (+31.4 ms)". Pure string formatting.
 
 import { chordGrade } from '../engine/chord';
-import { positionDirections } from '../engine/direction';
-import type { AttemptResult, ButtonId, ChordPress, DirectionMatch, Grade, HeldPosition, PressTiming, Step, StepResult } from '../engine/types';
+import { positionDirections, resolvePosition } from '../engine/direction';
+import { frameMs } from '../engine/timing';
+import type {
+  AttemptResult,
+  ButtonId,
+  ChordPress,
+  DirectionMatch,
+  Grade,
+  HeldPosition,
+  OppositePair,
+  PressTiming,
+  Step,
+  StepResult,
+} from '../engine/types';
 import type { ResultKind } from './stats';
 
 const MINUS = '−';
@@ -12,6 +24,16 @@ export function signedMs(ms: number): string {
   const rounded = Math.round(ms * 10) / 10;
   const sign = rounded < 0 ? MINUS : '+';
   return `${sign}${Math.abs(rounded).toFixed(1)} ms`;
+}
+
+/**
+ * "+2.3f" / "−1.9f": `ms` as a fraction of a frame at `fps`, one decimal, with the sign the ms
+ * shows in `signedMs` (SPEC §7, "Timing text").
+ */
+export function signedFrameFraction(ms: number, fps: number): string {
+  const negative = Math.round(ms * 10) / 10 < 0;
+  const frames = Math.abs(Math.round((ms / frameMs(fps)) * 10) / 10);
+  return `${negative ? MINUS : '+'}${frames.toFixed(1)}f`;
 }
 
 /** "+2f" / "−1f" / "0f". */
@@ -114,17 +136,32 @@ function pressTimingText(p: ChordPress): string {
 
 /**
  * One-line feedback for a graded step. `isStart` marks a first-input start step. A direction
- * mistake gets the timing text its presses earned, then a direction note: "On time (+5.2 ms) ·
- * Direction: ↘, wanted → exactly". Wording that timing needs the step's tolerances; without
- * `step` they count as 0.
+ * mistake gets the timing text its presses earned, then a direction note: "On time (+5.2 ms,
+ * +0.3f) · Direction: ↘, wanted → exactly". Wording that timing needs the step's tolerances;
+ * without `step` they count as 0. With `fps`, the ms also shows as a frame fraction. The step's
+ * reports follow as notes (SPEC §7, "Frame notes").
  */
-export function describeStep(r: StepResult, isStart: boolean, step?: Pick<Step, 'tolEarly' | 'tolLate'>): string {
+export function describeStep(r: StepResult, isStart: boolean, step?: Pick<Step, 'tolEarly' | 'tolLate'>, fps?: number): string {
+  const parts: string[] = [];
   if (r.directionMistake && r.direction) {
-    const timing = describeGrade({ ...r, grade: timingGrade(r, step ?? { tolEarly: 0, tolLate: 0 }) }, isStart);
-    return `${timing} · ${directionNote(r.direction)}`;
+    parts.push(describeGrade({ ...r, grade: timingGrade(r, step ?? { tolEarly: 0, tolLate: 0 }) }, isStart, fps));
+    parts.push(directionNote(r.direction, r.reports?.opposites));
+    for (const d of r.reports?.directionTaps ?? []) parts.push(`${directionArrow(d)} tapped, not held at end of frame`);
+  } else {
+    parts.push(describeGrade(r, isStart, fps));
   }
-  return describeGrade(r, isStart);
+  const lost = (r.reports?.lostRepresses ?? []).map((x) => x.button);
+  for (const b of lost.filter((x, i) => lost.indexOf(x) === i)) parts.push(`${b} pressed again while held (not counted)`);
+  return parts.join(' · ');
 }
+
+/** "→" for RIGHT. */
+const directionArrow = (d: ButtonId) => positionArrow(resolvePosition([d]));
+
+const OPPOSITE_TEXT: Readonly<Record<OppositePair, string>> = {
+  LEFT_RIGHT: '← and → both held',
+  UP_DOWN: '↑ and ↓ both held',
+};
 
 /**
  * The grade a step's presses earned on timing alone, before a failed direction check replaced
@@ -146,9 +183,9 @@ export function timingGrade(r: StepResult, step: Pick<Step, 'tolEarly' | 'tolLat
 /**
  * "Direction: ↘, wanted → exactly" (SPEC §7): "exactly" when an exact step's held position
  * contains the wanted one, "any ↓" for at least, "neutral" for an exact plain step, and
- * "none" when nothing was held.
+ * "none" when nothing was held. Opposite directions held go at the end: "(← and → both held)".
  */
-export function directionNote(d: NonNullable<StepResult['direction']>): string {
+export function directionNote(d: NonNullable<StepResult['direction']>, opposites: readonly OppositePair[] = []): string {
   const held = d.held === 5 ? 'none' : positionArrow(d.held);
   let wanted: string;
   if (d.wanted === 5) wanted = 'neutral';
@@ -158,11 +195,15 @@ export function directionNote(d: NonNullable<StepResult['direction']>): string {
     const contains = positionDirections(d.wanted).every((x) => heldDirs.includes(x));
     wanted = contains ? `${positionArrow(d.wanted)} exactly` : positionArrow(d.wanted);
   }
-  return `Direction: ${held}, wanted ${wanted}`;
+  const both = opposites.length > 0 ? ` (${opposites.map((o) => OPPOSITE_TEXT[o]).join(', ')})` : '';
+  return `Direction: ${held}, wanted ${wanted}${both}`;
 }
 
-function describeGrade(r: StepResult, isStart: boolean): string {
-  const ms = r.deltaMs !== undefined ? ` (${signedMs(r.deltaMs)})` : '';
+function describeGrade(r: StepResult, isStart: boolean, fps?: number): string {
+  let ms = '';
+  if (r.deltaMs !== undefined) {
+    ms = fps === undefined ? ` (${signedMs(r.deltaMs)})` : ` (${signedMs(r.deltaMs)}, ${signedFrameFraction(r.deltaMs, fps)})`;
+  }
   const d = r.deltaFrames ?? 0;
   switch (r.grade) {
     case 'ON_TIME':
