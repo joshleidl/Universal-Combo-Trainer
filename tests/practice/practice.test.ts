@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { arm, attemptResult, createAttempt, press, start, tick, type AttemptState } from '../../src/engine/attempt';
+import { arm, attemptResult, createAttempt, press, release, start, tick, type AttemptState } from '../../src/engine/attempt';
+import { openFrameEnd, settle } from '../engine/settle';
 import { DEFAULT_SETTINGS, frameToMs } from '../../src/engine/timing';
 import type { AttemptResult, Combo, PressEvent, Settings, Step, StepResult } from '../../src/engine/types';
 import { describeAttempt, describeStep, signedFrames, signedMs } from '../../src/practice/format';
@@ -14,6 +15,7 @@ import {
   countdownShown,
   createPractice,
   practicePress,
+  practiceRelease,
   practiceRestart,
   practiceTick,
   practiceWithSettings,
@@ -52,15 +54,25 @@ const T0 = 1000;
 /** LP at frame 0, then MP 10 frames later (±1). */
 const twoStep = combo([s('LP', 0), s('MP', 10, 1, 1)]);
 
+/** Closes the attempt's open frame at its end, as the UI's tick would. */
+function practiceSettle(state: PracticeState): PracticeState {
+  const end = openFrameEnd(state.attempt);
+  return end === null ? state : practiceTick(state, end);
+}
+
+/**
+ * Each press as a tap (released at the same time, so it still counts on its frame), then the
+ * last frame closes: results come when their frame closes (SPEC §3, "Frames").
+ */
 function run(state: PracticeState, presses: PressEvent[]): PracticeState {
-  return presses.reduce(practicePress, state);
+  return practiceSettle(presses.reduce((st, ev) => practiceRelease(practicePress(st, ev), ev), state));
 }
 
 /** Runs an attempt straight through the engine, for stats and timeline tests. */
 function engineRun(c: Combo, presses: PressEvent[], settings: Settings = DEFAULT_SETTINGS, frame0?: number): AttemptState {
   let st = arm(createAttempt(c, settings));
   if (frame0 !== undefined) st = start(st, frame0);
-  return presses.reduce(press, st);
+  return settle(presses.reduce((a, ev) => release(press(a, ev), ev), st));
 }
 
 function result(c: Combo, presses: PressEvent[], settings?: Settings): AttemptResult {
@@ -106,8 +118,9 @@ describe('practice session', () => {
 
   it('runs a countdown after an attempt and arms at Go', () => {
     let st = createPractice(twoStep, DEFAULT_SETTINGS);
-    const end = T0 + f(10);
-    st = run(st, [p('LP', T0), p('MP', end)]);
+    st = run(st, [p('LP', T0), p('MP', T0 + f(10))]);
+    // The attempt ends when MP's frame (10) closes, and the countdown starts then.
+    const end = T0 + f(11);
     expect(st.countdown).toEqual(countdownFrom(end));
     const go = countdownGoAt(countdownFrom(end));
     expect(go).toBe(end + COUNTDOWN_LEAD_MS + COUNTDOWN_BEATS * COUNTDOWN_BEAT_MS);
@@ -135,11 +148,12 @@ describe('practice session', () => {
 
   it('a press after Go starts the next attempt even if no tick ran in between', () => {
     let st = createPractice(twoStep, DEFAULT_SETTINGS);
-    const end = T0 + f(10);
-    st = run(st, [p('LP', T0), p('MP', end)]);
-    const go = countdownGoAt(countdownFrom(end));
+    st = run(st, [p('LP', T0), p('MP', T0 + f(10))]);
+    const go = countdownGoAt(countdownFrom(T0 + f(11)));
     st = practicePress(st, p('LP', go + 5));
     expect(st.countdown).toBeNull();
+    expect(st.attempt.frames.origin).toBe(go + 5); // frame 0 is open
+    st = practiceSettle(st);
     expect(st.attempt.phase).toBe('running');
     expect(st.attempt.frame0).toBe(go + 5);
   });
@@ -187,6 +201,8 @@ describe('practice session', () => {
     st = practiceRestart(st, T0 + 3000);
     expect(shownAttempt(st)).toBe(finished);
     st = practicePress(st, p('LP', T0 + 5000));
+    expect(shownAttempt(st)).toBe(finished); // step 1 isn't graded until frame 0 closes
+    st = practiceSettle(st);
     expect(shownAttempt(st)).toBe(st.attempt);
   });
 
@@ -253,10 +269,10 @@ describe('countdown start mode', () => {
     st = practiceTick(st, countdownLiveAt(countdownFrom(T0)));
     expect(st.attempt.phase).toBe('running');
     expect(st.attempt.frame0).toBe(go);
-    st = practicePress(st, p('HP', go + f(7)));
+    st = practiceSettle(practicePress(st, p('HP', go + f(7))));
     expect(st.attempt.results[0]?.grade).toBe('ON_TIME');
     expect(st.attempt.results[0]?.deltaFrames).toBe(1);
-    st = practicePress(st, p('LK', go + f(17)));
+    st = practiceSettle(practicePress(st, p('LK', go + f(17))));
     expect(st.attempt.phase).toBe('done');
     expect(st.stats.successes).toBe(1);
   });
@@ -272,7 +288,7 @@ describe('countdown start mode', () => {
   it('a press in the last beat grades EARLY instead of restarting', () => {
     let { st, go } = begin();
     // No tick has run: the press itself moves the countdown to its live part.
-    st = practicePress(st, p('HP', countdownLiveAt(countdownFrom(T0)) + 10));
+    st = practiceSettle(practicePress(st, p('HP', countdownLiveAt(countdownFrom(T0)) + 10)));
     expect(st.countdown).toEqual(countdownFrom(T0));
     expect(st.attempt.frame0).toBe(go);
     expect(st.attempt.results[0]?.grade).toBe('EARLY');
@@ -284,7 +300,7 @@ describe('countdown start mode', () => {
     st = practiceTick(st, go);
     expect(st.countdown).toBeNull();
     expect(st.attempt.phase).toBe('running');
-    st = practicePress(st, p('HP', go + f(6)));
+    st = practiceSettle(practicePress(st, p('HP', go + f(6))));
     expect(st.attempt.results).toHaveLength(1);
   });
 
@@ -357,17 +373,20 @@ describe('sound cues', () => {
     const a = createPractice(three, DEFAULT_SETTINGS);
     const b = practicePress(a, p('LP', T0));
     expect(practiceCues(a, b)).toEqual([]);
+    // MP's press closes frame 0 (the start step: no sound); MP sounds when its own frame closes.
     const c = practicePress(b, p('MP', T0 + f(10)));
-    expect(practiceCues(b, c)).toEqual(['onTime']);
+    expect(practiceCues(b, c)).toEqual([]);
+    expect(practiceCues(c, practiceSettle(c))).toEqual(['onTime']);
     const d = practicePress(createPractice(three, DEFAULT_SETTINGS), p('LP', T0));
-    expect(practiceCues(d, practicePress(d, p('MP', T0 + f(13))))).toEqual(['off']);
+    expect(practiceCues(d, practiceSettle(practicePress(d, p('MP', T0 + f(13)))))).toEqual(['off']);
   });
 
   it('a finished attempt gives one clean or fail sound', () => {
     const b = run(createPractice(three, DEFAULT_SETTINGS), [p('LP', T0), p('MP', T0 + f(10))]);
-    expect(practiceCues(b, practicePress(b, p('HP', T0 + f(20))))).toEqual(['clean']);
-    expect(practiceCues(b, practicePress(b, p('HP', T0 + f(22))))).toEqual(['fail']);
-    expect(practiceCues(b, practicePress(b, p('LK', T0 + f(20))))).toEqual(['fail']);
+    const after = (ev: PressEvent) => practiceSettle(practicePress(b, ev));
+    expect(practiceCues(b, after(p('HP', T0 + f(20))))).toEqual(['clean']);
+    expect(practiceCues(b, after(p('HP', T0 + f(22))))).toEqual(['fail']);
+    expect(practiceCues(b, after(p('LK', T0 + f(20))))).toEqual(['fail']);
     expect(practiceCues(b, practiceTick(b, T0 + f(60)))).toEqual(['fail']);
   });
 
@@ -383,7 +402,7 @@ describe('sound cues', () => {
     let st = practicePress(createPractice(cd, DEFAULT_SETTINGS), p('LP', T0));
     const go = countdownGoAt(countdownFrom(T0));
     st = practiceTick(st, go);
-    expect(practiceCues(st, practicePress(st, p('HP', go + f(6))))).toEqual(['onTime']);
+    expect(practiceCues(st, practiceSettle(practicePress(st, p('HP', go + f(6)))))).toEqual(['onTime']);
   });
 });
 
@@ -394,19 +413,19 @@ describe('metronome ticks', () => {
     const c = combo([s('LP', 0), s('MP', 10), s('HP', 5)]);
     let st = createPractice(c, DEFAULT_SETTINGS);
     expect(metronomeTicks(st.attempt)).toEqual([]);
-    st = practicePress(st, p('LP', T0));
+    st = practiceSettle(practicePress(st, p('LP', T0)));
     expect(metronomeTicks(st.attempt).map((t) => t.at)).toEqual([T0 + mid(10)]);
-    st = practicePress(st, p('MP', T0 + 170));
+    st = practiceSettle(practicePress(st, p('MP', T0 + 170)));
     // MP at 170 ms lands on frame 10, so HP (gap 5) ticks in the middle of frame 15.
     expect(metronomeTicks(st.attempt).map((t) => t.at)).toEqual([T0 + mid(15)]);
   });
 
   it('absolute: every remaining step from frame 0, skipping the start step', () => {
     const c = combo([s('LP', 0), s('MP', 10), s('HP', 20)], { timingMode: 'absolute' });
-    let st = practicePress(createPractice(c, DEFAULT_SETTINGS), p('LP', T0));
+    let st = practiceSettle(practicePress(createPractice(c, DEFAULT_SETTINGS), p('LP', T0)));
     expect(metronomeTicks(st.attempt).map((t) => t.at)).toEqual([T0 + mid(10), T0 + mid(20)]);
     const before = metronomeTicks(st.attempt)[1]?.key;
-    st = practicePress(st, p('MP', T0 + f(10)));
+    st = practiceSettle(practicePress(st, p('MP', T0 + f(10))));
     const after = metronomeTicks(st.attempt);
     expect(after.map((t) => t.at)).toEqual([T0 + mid(20)]);
     expect(after[0]?.key).toBe(before);
@@ -418,7 +437,7 @@ describe('metronome ticks', () => {
     const go = countdownGoAt(countdownFrom(T0));
     st = practiceTick(st, countdownLiveAt(countdownFrom(T0)));
     expect(metronomeTicks(st.attempt).map((t) => t.at)).toEqual([go + mid(6)]);
-    st = practicePress(st, p('HP', go + f(6)));
+    st = practiceSettle(practicePress(st, p('HP', go + f(6))));
     expect(metronomeTicks(st.attempt)).toEqual([]);
   });
 });

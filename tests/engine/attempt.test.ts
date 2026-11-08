@@ -11,6 +11,7 @@ import {
   type AttemptState,
 } from '../../src/engine/attempt';
 import { DEFAULT_SETTINGS, frameToMs } from '../../src/engine/timing';
+import { settle } from './settle';
 import type { Combo, InputSource, PressEvent, Settings, Step } from '../../src/engine/types';
 
 // --- helpers ---------------------------------------------------------------
@@ -45,7 +46,8 @@ function begin(c: Combo, st: Settings = DEFAULT_SETTINGS, frame0 = 1000): Attemp
   return c.startMode === 'countdown' ? start(armed, frame0) : armed;
 }
 
-const feed = (state: AttemptState, presses: PressEvent[]) => presses.reduce(press, state);
+/** Presses in order, then closes the last press's frame. */
+const feed = (state: AttemptState, presses: PressEvent[]) => settle(presses.reduce(press, state));
 
 /** ms timestamp of `frame` frames after `base`, at `fps`. */
 const f = (base: number, frame: number, fps = 60) => base + frameToMs(frame, fps);
@@ -57,22 +59,30 @@ describe('phases', () => {
     const c = combo([s('LP', 0), s('MP', 3)]);
     let st = createAttempt(c);
     expect(st.phase).toBe('idle');
-    expect(press(st, p('LP', 1000))).toBe(st); // ignored while idle
+    // Not graded while idle; only the held set changes.
+    const idlePress = settle(press(st, p('LP', 1000)));
+    expect(idlePress).toMatchObject({ phase: 'idle', results: [], held: ['LP'] });
     st = arm(st);
     expect(st.phase).toBe('armed');
+    // Step 1 is graded when frame 0 closes, not on the press.
     st = press(st, p('LP', 1000));
+    expect(st.phase).toBe('armed');
+    st = settle(st);
     expect(st.phase).toBe('running');
     expect(currentStepIndex(st)).toBe(1);
-    st = press(st, p('MP', 1050));
+    st = settle(press(st, p('MP', 1050)));
     expect(st.phase).toBe('done');
     expect(currentStepIndex(st)).toBeNull();
-    expect(press(st, p('MP', 1100))).toBe(st); // ignored once done
+    // Not graded once done; only the held set changes.
+    const after = settle(press(st, p('MP', 1100)));
+    expect(after.results).toBe(st.results);
+    expect(after.phase).toBe('done');
   });
 
   it('returns no result until done', () => {
     const st = begin(combo([s('LP', 0), s('MP', 3)]));
     expect(attemptResult(st)).toBeNull();
-    expect(attemptResult(press(st, p('LP', 1000)))).toBeNull();
+    expect(attemptResult(settle(press(st, p('LP', 1000))))).toBeNull();
   });
 
   it('re-arms a finished attempt as a fresh one', () => {
@@ -86,12 +96,12 @@ describe('phases', () => {
   it('ignores start() in firstInput mode and arm() while running', () => {
     const armed = begin(combo([s('LP', 0), s('MP', 3)]));
     expect(start(armed, 1000)).toBe(armed);
-    const running = press(armed, p('LP', 1000));
+    const running = settle(press(armed, p('LP', 1000)));
     expect(arm(running)).toBe(running);
   });
 
   it('completes a one-step firstInput combo on the first press', () => {
-    const st = press(begin(combo([s('LP', 0)])), p('LP', 1000));
+    const st = settle(press(begin(combo([s('LP', 0)])), p('LP', 1000)));
     expect(st.phase).toBe('done');
     expect(attemptResult(st)?.success).toBe(true);
   });
@@ -192,7 +202,7 @@ describe('relative vs absolute timing', () => {
 
 describe('start modes', () => {
   it('firstInput: the first press is frame 0 and always on time, whatever its target', () => {
-    const st = press(begin(combo([s('LP', 10), s('MP', 3)])), p('LP', 1234));
+    const st = settle(press(begin(combo([s('LP', 10), s('MP', 3)])), p('LP', 1234)));
     expect(st.frame0).toBe(1234);
     expect(st.results[0]).toMatchObject({
       grade: 'ON_TIME',
@@ -205,11 +215,11 @@ describe('start modes', () => {
 
   it('countdown: step 1 is graded against its target from frame 0', () => {
     const c = combo([s('LP', 2), s('MP', 3)], { startMode: 'countdown' });
-    const onTime = press(begin(c), p('LP', f(1000, 2)));
+    const onTime = settle(press(begin(c), p('LP', f(1000, 2))));
     expect(onTime.results[0]).toMatchObject({ grade: 'ON_TIME', inputFrame: 2, deltaFrames: 0 });
-    const early = press(begin(c), p('LP', 1000));
+    const early = settle(press(begin(c), p('LP', 1000)));
     expect(early.results[0]).toMatchObject({ grade: 'EARLY', deltaFrames: -2 });
-    const late = press(begin(c), p('LP', f(1000, 3)));
+    const late = settle(press(begin(c), p('LP', f(1000, 3))));
     expect(late.results[0]).toMatchObject({ grade: 'LATE', deltaFrames: 1 });
   });
 
@@ -217,12 +227,14 @@ describe('start modes', () => {
     const c = combo([s('LP', 0), s('MP', 3)], { startMode: 'countdown' });
     const armed = arm(createAttempt(c));
     expect(currentStepIndex(armed)).toBeNull();
-    expect(press(armed, p('LP', 900))).toBe(armed);
+    const pressed = settle(press(armed, p('LP', 900)));
+    expect(pressed).toMatchObject({ phase: 'armed', results: [], held: ['LP'] });
+    expect(pressed.frames.origin).toBeNull();
   });
 
   it('countdown: a press before a scheduled frame 0 grades early with negative frames', () => {
     const c = combo([s('LP', 0), s('MP', 3)], { startMode: 'countdown' });
-    const st = press(begin(c, DEFAULT_SETTINGS, 2000), p('LP', 1990));
+    const st = settle(press(begin(c, DEFAULT_SETTINGS, 2000), p('LP', 1990)));
     expect(st.results[0]).toMatchObject({ grade: 'EARLY', inputFrame: -1, deltaFrames: -1 });
   });
 
@@ -259,7 +271,7 @@ describe('wrong button', () => {
   });
 
   it('strict: a wrong first press in firstInput mode ends the attempt', () => {
-    const r = attemptResult(press(begin(c), p('HK', 1000)))!;
+    const r = attemptResult(settle(press(begin(c), p('HK', 1000))))!;
     expect(r.endedBy).toBe('wrongButton');
     expect(r.results[0]).toMatchObject({ stepIndex: 0, grade: 'WRONG_BUTTON', expected: ['LP'] });
   });
@@ -267,16 +279,16 @@ describe('wrong button', () => {
   it('non-strict: logs and ignores wrong presses; the step keeps waiting', () => {
     const lax = settings({ strict: false });
     const st = feed(begin(c, lax), [
-      p('HK', 990), // ignored before frame 0
+      p('HK', 900), // a frame 0 of its own: ignored, and frame 0 is cleared
       p('LP', 1000),
-      p('HK', f(1000, 1)), // ignored
+      p('MK', f(1000, 1)), // ignored (HK is still held: no release was sent)
       p('MP', f(1000, 3)),
       p('LK', f(f(1000, 3), 2)), // ignored
       p('HP', f(f(1000, 3), 3)),
     ]);
     const r = attemptResult(st)!;
     expect(r.success).toBe(true);
-    expect(r.ignoredPresses.map((x) => x.button)).toEqual(['HK', 'HK', 'LK']);
+    expect(r.ignoredPresses.map((x) => x.button)).toEqual(['HK', 'MK', 'LK']);
     expect(st.frame0).toBe(1000);
   });
 });
@@ -284,7 +296,7 @@ describe('wrong button', () => {
 describe('missed / timeout', () => {
   // Step 2: target 3, tolLate 1, default timeout 30 → last accepted frame is 34.
   const c = combo([s('LP', 0), s('MP', 3, 0, 1)]);
-  const running = () => press(begin(c), p('LP', 1000));
+  const running = () => settle(press(begin(c), p('LP', 1000)));
 
   it('tick() keeps waiting through the last accepted frame', () => {
     const st = tick(running(), f(1000, 35) - 0.01);
@@ -299,23 +311,23 @@ describe('missed / timeout', () => {
   });
 
   it('a press on the last accepted frame is graded LATE', () => {
-    const st = press(running(), p('MP', f(1000, 34)));
+    const st = settle(press(running(), p('MP', f(1000, 34))));
     expect(st.results[1]).toMatchObject({ grade: 'LATE', deltaFrames: 31 });
   });
 
   it('a press after the window is MISSED even if tick() never ran', () => {
-    const viaPress = attemptResult(press(running(), p('MP', f(1000, 35))))!;
+    const viaPress = attemptResult(settle(press(running(), p('MP', f(1000, 35)))))!;
     const viaTick = attemptResult(tick(running(), f(1000, 35)))!;
     expect(viaPress.results).toEqual(viaTick.results);
   });
 
   it('missed takes priority over a late wrong button', () => {
-    const r = attemptResult(press(running(), p('HK', f(1000, 40))))!;
+    const r = attemptResult(settle(press(running(), p('HK', f(1000, 40)))))!;
     expect(r.endedBy).toBe('missed');
   });
 
   it('respects a custom timeoutFrames', () => {
-    const st0 = press(begin(c, settings({ timeoutFrames: 0 })), p('LP', 1000));
+    const st0 = settle(press(begin(c, settings({ timeoutFrames: 0 })), p('LP', 1000)));
     expect(tick(st0, f(1000, 5) - 0.01).phase).toBe('running');
     expect(tick(st0, f(1000, 5)).endedBy).toBe('missed');
   });
@@ -383,17 +395,17 @@ describe('latency offset', () => {
   it('applies to presses but not to the countdown frame 0', () => {
     const cd = combo([s('LP', 3)], { startMode: 'countdown' });
     const lag = settings({ latencyOffsetMs: { keyboard: 20, gamepad: 0 } });
-    const st = press(begin(cd, lag, 1000), p('LP', f(1000, 3) + 20));
+    const st = settle(press(begin(cd, lag, 1000), p('LP', f(1000, 3) + 20)));
     expect(st.results[0]).toMatchObject({ grade: 'ON_TIME', inputFrame: 3 });
   });
 
   it('tick() waits for the largest offset before declaring a miss', () => {
     const lag = settings({ latencyOffsetMs: { keyboard: 0, gamepad: 20 } });
-    const st = press(begin(c, lag), p('LP', 1000, 'keyboard'));
+    const st = settle(press(begin(c, lag), p('LP', 1000, 'keyboard')));
     // Last accepted frame is 33 (target 3 + 0 + 30), so the window closes at the start of frame 34.
     // A gamepad press 15 ms after that, corrected by 20 ms, still lands on frame 33.
     expect(tick(st, f(1000, 34) + 15).phase).toBe('running');
-    expect(press(st, p('MP', f(1000, 34) + 15, 'gamepad')).results[1]!.grade).toBe('LATE');
+    expect(settle(press(st, p('MP', f(1000, 34) + 15, 'gamepad'))).results[1]!.grade).toBe('LATE');
     expect(tick(st, f(1000, 34) + 20).phase).toBe('done');
   });
 

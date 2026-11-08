@@ -1,6 +1,6 @@
 # Universal Combo Trainer
 
-A browser app for practicing fighting game combo timing. You write down a combo as a list of button presses, say which frame each press should land on, and pick a framerate. Then you perform it on a keyboard or controller, and the app tells you how each press went: on time, early, or late, by how many frames and milliseconds (for example "2f late (+31.4 ms)").
+A browser app for practicing fighting game combo timing. You write down a combo as a list of button presses, say which frame each press should land on, and pick a framerate. Then you perform it on a keyboard or controller, and the app tells you how each press went: on time, early, or late, by how many frames and milliseconds (for example "2f late (+31.4 ms, +1.9f)").
 
 It works with any game, because it never touches the game. It only measures your own inputs against the timing you set.
 
@@ -31,7 +31,7 @@ Change them on the Controls page.
 
 ## How grading works
 
-Frames are worked out from timestamps, not counted by a loop: at 60 fps, one frame is 16.67 ms. Each attempt has one fixed frame grid starting at frame 0. A press is **on time** if it lands within the step's tolerance of its target frame, **early** or **late** if it lands outside it, **wrong button** if you press a different button (in strict mode this ends the attempt), and **missed** if nothing arrives before the timeout. Chords are graded on the press that completes them, and can also come out **split** (one press early, another not) or **partial** (a button missing). The full rules are in [SPEC.md](SPEC.md) §3.
+Frames are worked out from timestamps, not counted by a loop: at 60 fps, one frame is 16.67 ms. Each attempt has one fixed frame grid starting at frame 0. Like a game, the app reads input once per frame: everything pressed on one frame is judged together, and each result shows up when its frame ends. A press is **on time** if it lands within the step's tolerance of its target frame, **early** or **late** if it lands outside it, **wrong button** if you press a different button (in strict mode this ends the attempt), and **missed** if nothing arrives before the timeout. Chords are graded on the press that completes them, and can also come out **split** (one press early, another not) or **partial** (a button missing). The full rules are in [SPEC.md](SPEC.md) §3.
 
 One known limit: browsers read gamepads by polling. The app polls every 4 ms while the page has focus and warns you if the measured rate is about one frame or slower. See [SPEC.md](SPEC.md) §5 for measurements.
 

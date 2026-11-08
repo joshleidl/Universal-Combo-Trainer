@@ -323,3 +323,61 @@ Editor and examples, per SPEC §3 "Combo definition" and SPEC §7 "Directions in
   - The grid's group is labelled "Step N direction grid" so it doesn't share a name with the dropdown.
 - **Examples:** "cr." steps (1-frame link: both cr.LK; chord link: cr.MK) are ↓ at least. New "Example: command normal": ↓+LP at least (cr.LP), →+MP exact ("command normal", target 10), HP neutral required (st.HP, target 18); it shows all three kinds of step. The example test now expects 3–5 examples, one with a direction.
 - **Already-seeded examples** (settled in Layer 3: examples are seeded only into empty storage): browsers that already have saved combos keep their old example copies, with the "cr." steps unchanged, and don't get "Example: command normal". No migration, simplest option. Deleting all combos doesn't bring the examples back either; clearing site data does.
+
+## Frame-based inputs: spec (2026-11-08)
+Applied from [docs/proposals/2026-11-08-frame-based-inputs-spec.md](docs/proposals/2026-11-08-frame-based-inputs-spec.md) to SPEC §3 "Frames", "Grading", "Chords", "Directions", "First-input start", §4 "Engine API: frames", §7 and §8. Plan: [docs/plans/2026-11-08-frame-based-inputs.md](docs/plans/2026-11-08-frame-based-inputs.md).
+- **Decision 15 (user's call):** a new pure module `engine/frames.ts` groups inputs into frame records; `attempt.ts` keeps `press` / `release` / `tick` as the outer calls and grades closed frames inside. Records aren't kept after grading; their reports go on `StepResult.reports`. Offered alternatives: also keeping every record in `AttemptResult`, or one `input()` call replacing `press` / `release`.
+- **Countdown negative frames (user's call):** the proposal said records exist "from frame 0 on", but also kept negative frames before Go (A5). Frames before Go are closed and graded from `start()` on, so a press before Go still grades `EARLY`, as before.
+- **Assumptions A1–A5** accepted by the user as written.
+- **Gaps filled (simplest option):**
+  - **Empty frames get no stored record.** The attempt still treats every frame as closing: after each record and on `tick`, it runs the time-based checks (`MISSED`, the chord window running out) for every frame closed since. Same results as storing one record per frame.
+  - **First-input frame 0** starts at the first down event of a non-direction button that isn't already held.
+  - **The stray named in a `WRONG_BUTTON` result** is the frame's first non-awaited button press, in arrival order.
+  - **Non-strict ignores** put one entry per press in `ignoredPresses` (the press's last down event).
+  - **Chord `ms` window:** the first press is the earliest press ms on the chord's first frame. Presses after the window's end, on the frame it ends on, don't count toward the chord.
+  - **A chord's `WRONG_BUTTON` result** lists the chord's earlier presses, then the breaking frame's presses in arrival order, the wrong one last.
+  - **`chordProgress`** shows presses from closed frames only, so the live chord highlight can lag a frame.
+  - **The frame fraction** is shown wherever the ms is, including the wrong-button text.
+  - **The last step** follows the extra-press rule too, so the attempt completes when its frame closes.
+
+## Frame-based inputs: M3, single-button steps (2026-11-08)
+Engine only (`engine/attempt.ts`), per SPEC §3 "Frames", "Grading", "First-input start" and §4 "Engine API: frames". Tests: `tests/engine/frameGrading.test.ts`, plus the existing engine and practice tests updated.
+- **Gaps filled (simplest option):**
+  - **Held buttons are tracked in every phase**, idle and done included, like directions. A press in idle or done changes only the held set.
+  - **No change, same state.** An input that changes nothing (no grid yet, held set unchanged) returns the state unchanged, so the practice layer's "did the attempt change" checks still hold.
+  - **The attempt drops its grid when it ends** (`finish` clears the frame layer's origin), so inputs after the end only change the held set.
+  - **`frame0` stays null until step 1 is graded** in first-input mode; the frame layer's origin holds frame 0 while it's open (as a step-1 chord did before).
+- **Behavior changes seen in the existing tests** (all from the proposal's section 4):
+  - Results, sounds and the next countdown come when the graded frame closes, not on the press.
+  - A first-input stray within one frame of the start press now voids both in non-strict mode (the extra-press rule on frame 0).
+  - Pressing the same button again with no release in between isn't a press. The old tests never sent releases; they now do (the practice helpers send taps: press and release at the same time).
+
+## Frame-based inputs: M4, chords (2026-11-08)
+Engine only (`engine/attempt.ts`, `engine/chord.ts`), per SPEC §3 "Chords". Tests: `tests/engine/chord.test.ts` (F9, F10, same-frame timing, ms window end, non-strict cases added).
+- **`insideChordWindow`** now applies the same-frame rule for `ms` (a press on the first press's frame always fits). New `chordWindowLastFrame` gives the frame whose close makes an incomplete chord `PARTIAL`.
+- **Presses completing a chord on one frame** are put in time order, so the graded press is the latest one on that frame.
+- **Non-strict `PARTIAL`** resets the chord, then the `MISSED` check runs again in the same close (the timer was only paused while collecting).
+- **Behavior changes seen in the existing tests:** a chord button pressed twice on one frame is one press (decision 4b), not a mistake; pressing it again on a later frame still is. Presses far apart on one frame now pass a small `ms` window (decision 10).
+
+## Frame-based inputs: M5, reports (2026-11-08)
+Engine only, per SPEC §3 "Frames" (lost re-press), "Directions" rule 5 (reports) and §4 "Engine API: frames". Tests: `tests/engine/frameExamples.test.ts` (F1–F12 and report edge cases).
+- **Lost re-presses collect on the attempt** (`AttemptState.lostRepresses`) while a step is awaited and go on the next result made for it, whatever it is (graded, `WRONG_BUTTON`, `PARTIAL` or `MISSED`). A frame can add several over time; each keeps its own frame.
+- **Kept across a non-strict step-1 restart** (simplest option): when frame 0 is cleared, step 1 is still the awaited step, so its lost re-presses stay; their frame numbers are from the cleared grid.
+- **Ignored direction taps** count only wanted directions (those in the step's position); a tap of another direction isn't reported. **Opposite pairs** are every pair held at the graded frame's end, on a failed check.
+- **F12 wording gap** (for M6): the proposal's text "1f late (+38.3 ms, +2.3f)" counts frames past the late window, but today's text counts `deltaFrames` from the target ("2f late"). The engine reports `deltaFrames` 2, unchanged.
+
+## Frame-based inputs: M6, feedback text (2026-11-08)
+Practice side, per SPEC §7 "Timing text" and "Frame notes". Tests: `tests/practice/frameFeedback.test.ts`.
+- **F12 wording (user's call):** frames keep counting from the target frame (`deltaFrames`), so F12 reads "2f late (+38.3 ms, +2.3f)". The proposal's "1f late" was corrected in SPEC §7 and the proposal.
+- **Gaps filled (simplest option):**
+  - `describeStep(r, isStart, step?, fps?)`: the fraction shows only when `fps` is given; the practice page always passes the combo's fps. Calls without it keep the old text.
+  - The fraction's sign is the sign the ms shows after rounding, so "+0.0 ms" never pairs with "−0.0f".
+  - Note order: timing, direction note (with opposite directions inside it), ignored taps (one note per direction), lost re-presses (one note per button, even if it happened on several frames).
+  - A start step keeps "Start" and still gets its notes.
+- **Browser check** (headless Chromium, keyboard, seeded combos; `playwright-core` installed in the session scratchpad, not the project): a clean run read "On time (+10.3 ms, +0.6f)"; I and U pressed together on step 2 gave "Wrong button: LP at 0f (+8.4 ms, +0.5f)" and ended the attempt; → tapped around MP on one frame gave "… · Direction: none, wanted → · → tapped, not held at end of frame"; → held through MP passed. The longer text wraps inside the step card.
+
+## Frame-based inputs: M7, wrap-up (2026-11-08)
+- BACKLOG "same-frame presses" bug struck through (fixed by the extra-press rule).
+- README: the feedback example now shows the frame fraction, plus one sentence on reading input once per frame.
+- Added a test that two absolute steps can't land on the same frame (the only spec rule without its own test).
+- Requirements check and follow-ups are at the end of [docs/plans/2026-11-08-frame-based-inputs.md](docs/plans/2026-11-08-frame-based-inputs.md).

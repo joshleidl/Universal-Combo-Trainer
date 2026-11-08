@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arm, attemptResult, createAttempt, press, start } from '../../src/engine/attempt';
+import { arm, attemptResult, createAttempt, press, start, tick } from '../../src/engine/attempt';
 import { DEFAULT_SETTINGS, frameToMs } from '../../src/engine/timing';
 import type { Combo, Grade, StartMode, Step } from '../../src/engine/types';
 
@@ -29,6 +29,8 @@ function run(c: Combo, times: number[], frame0?: number) {
   times.forEach((t, i) => {
     st = press(st, { button: c.steps[i]!.buttons[0]!, timestamp: t, source: 'keyboard' });
   });
+  // The last step's result comes when its frame closes (SPEC §3, "Frames").
+  st = tick(st, Math.max(...times) + F);
   const result = attemptResult(st);
   if (!result) throw new Error('attempt did not finish');
   return result;

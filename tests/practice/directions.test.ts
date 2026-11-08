@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { arm, attemptResult, createAttempt, press, release, tick, type AttemptState } from '../../src/engine/attempt';
+import { settle } from '../engine/settle';
 import { DEFAULT_SETTINGS, frameToMs } from '../../src/engine/timing';
 import type { ButtonId, Combo, DirectionMatch, HeldPosition, PressEvent, ReleaseEvent, Settings, Step, StepResult } from '../../src/engine/types';
 import { practiceCues } from '../../src/practice/cues';
@@ -36,8 +37,9 @@ const r = (button: ButtonId, timestamp: number): ReleaseEvent => ({ button, time
 type Input = ['press' | 'release', ButtonId, number];
 const feedPractice = (st: PracticeState, inputs: Input[]) =>
   inputs.reduce((s, [edge, b, t]) => (edge === 'press' ? practicePress(s, p(b, t)) : practiceRelease(s, r(b, t))), st);
+/** Feeds the inputs, then closes the last input's frame (results come when a frame closes). */
 const feedEngine = (st: AttemptState, inputs: Input[]) =>
-  inputs.reduce((s, [edge, b, t]) => (edge === 'press' ? press(s, p(b, t)) : release(s, r(b, t))), st);
+  settle(inputs.reduce((s, [edge, b, t]) => (edge === 'press' ? press(s, p(b, t)) : release(s, r(b, t))), st));
 
 const step = (buttons: ButtonId[], over: Partial<Step> = {}): Step => ({
   buttons,
@@ -73,7 +75,7 @@ describe('practice session: held state', () => {
   it('createPractice arms with the held set', () => {
     const st = createPractice(rightMp, DEFAULT_SETTINGS, undefined, ['RIGHT', 'LP']);
     expect(st.held).toEqual(['RIGHT', 'LP']);
-    expect(st.attempt.held).toEqual(['RIGHT']);
+    expect(st.attempt.held).toEqual(['RIGHT', 'LP']);
     expect(liveInput(st)).toEqual({ position: 6, buttons: ['LP'] });
   });
 
@@ -100,10 +102,13 @@ describe('practice session: held state', () => {
     st = feedPractice(st, [
       ['press', 'RIGHT', T0 - 100],
       ['press', 'LK', at(0)],
+      ['release', 'LK', at(0, 6)],
       ['press', 'MP', at(10)],
+      ['release', 'MP', at(10, 6)],
       ['press', 'HK', at(20)],
+      ['release', 'HK', at(20, 6)],
     ]);
-    st = practiceTick(st, at(20) + 10);
+    st = practiceTick(st, at(21, 5)); // HK's frame closes (frame 0 is LK at at(0))
     expect(st.attempt.phase).toBe('done');
     expect(st.stats.successes).toBe(1);
     // Next attempt arms at Go with → still held.
@@ -116,6 +121,7 @@ describe('practice session: held state', () => {
       ['press', 'MP', at(10, 5, go + 100)],
       ['press', 'HK', at(20, 5, go + 100)],
     ]);
+    st = practiceTick(st, at(21, 5, go + 100));
     expect(st.attempt.results[1]).toMatchObject({ grade: 'ON_TIME', direction: { held: 6 } });
   });
 
@@ -127,11 +133,13 @@ describe('practice session: held state', () => {
       ['press', 'MP', at(10)],
       ['press', 'HK', at(20)],
     ]);
+    st = practiceTick(st, at(21, 5)); // HK's frame closes (frame 0 is LK at at(0)) and the countdown starts
     const countdown = st.countdown;
+    expect(countdown).not.toBeNull();
     st = practiceRelease(st, r('RIGHT', at(20) + 300));
     expect(st.countdown).toBe(countdown); // releases never restart a countdown
     st = practiceTick(st, countdownGoAt(countdown!));
-    expect(st.attempt.held).toEqual([]);
+    expect(st.attempt.held).not.toContain('RIGHT'); // the buttons were never released
   });
 
   it('quick restart and a settings change keep the held set', () => {
@@ -143,9 +151,9 @@ describe('practice session: held state', () => {
     st = practiceRestart(st, at(6));
     expect(st.attempt.phase).toBe('armed');
     expect(st.attempt.results).toEqual([]);
-    expect(st.attempt.held).toEqual(['RIGHT']);
+    expect(st.attempt.held).toEqual(['LK', 'RIGHT']);
     st = practiceWithSettings(st, settings({ strict: false }));
-    expect(st.attempt.held).toEqual(['RIGHT']);
+    expect(st.attempt.held).toEqual(['LK', 'RIGHT']);
   });
 
   it('a direction input that closes the last step’s check finishes the attempt and records it', () => {
@@ -184,7 +192,9 @@ describe('practice session: countdowns start on buttons only', () => {
       ['press', 'LP', at(0)],
       ['press', 'MP', at(10)],
     ]);
+    st = practiceTick(st, at(11, 5)); // MP's frame closes and the countdown starts
     const c = st.countdown;
+    expect(c).not.toBeNull();
     st = feedPractice(st, [
       ['press', 'DOWN', at(10) + 200],
       ['press', 'RIGHT', at(10) + 300],
@@ -216,8 +226,10 @@ describe('practice session: countdowns start on buttons only', () => {
     st = practiceTick(st, countdownLiveAt(st.countdown!));
     st = feedPractice(st, [
       ['press', 'MK', go + 5],
+      ['release', 'MK', go + 8],
       ['press', 'HP', at(10, 5, go)],
     ]);
+    st = practiceTick(st, at(11, 5, go));
     expect(st.attempt.phase).toBe('done');
     expect(st.stats.successes).toBe(1);
     // ↓ is still held: the next attempt, started by the countdown after this one, sees it.

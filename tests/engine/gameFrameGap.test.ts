@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arm, attemptResult, createAttempt, press } from '../../src/engine/attempt';
+import { arm, attemptResult, createAttempt, press, tick } from '../../src/engine/attempt';
 import { DEFAULT_SETTINGS } from '../../src/engine/timing';
 import type { Combo, Grade } from '../../src/engine/types';
 
@@ -45,6 +45,8 @@ describe('frame gap table (relative mode, first press at t = 0)', () => {
       let st = arm(createAttempt(combo, DEFAULT_SETTINGS));
       st = press(st, { button: 'LP', timestamp: 0, source: 'keyboard' });
       st = press(st, { button: 'MP', timestamp: r.bMs, source: 'keyboard' });
+      // MP's result comes when its frame closes (SPEC §3, "Frames").
+      st = tick(st, r.bMs + 1000 / 60);
 
       const step2 = attemptResult(st)?.results[1];
       expect(step2?.grade).toBe(r.expected);
