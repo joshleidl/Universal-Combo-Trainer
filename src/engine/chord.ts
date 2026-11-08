@@ -23,12 +23,22 @@ export interface PressPoint {
 }
 
 /**
- * True when a press at `at` is still inside the window opened by the chord's first press.
- * Frames compare grid frames; ms compare corrected timestamps.
+ * True when a press at `at` is still inside the window opened by the chord's first press
+ * (SPEC §3 Chords, rule 2). Frames compare grid frames. Ms compare corrected timestamps, except
+ * that a press on the same frame as the first always fits.
  */
 export function insideChordWindow(win: ChordWindow, first: PressPoint, at: PressPoint): boolean {
   if (win.unit === 'frames') return at.frame - first.frame <= win.size;
-  return at.t - first.t <= win.size + MS_EPSILON;
+  return at.frame === first.frame || at.t - first.t <= win.size + MS_EPSILON;
+}
+
+/**
+ * The last grid frame a press can still fit the window on: once it closes with buttons missing,
+ * the chord is PARTIAL. `frameAt` maps a corrected time to its grid frame.
+ */
+export function chordWindowLastFrame(win: ChordWindow, first: PressPoint, frameAt: (t: number) => number): number {
+  if (win.unit === 'frames') return first.frame + win.size;
+  return Math.max(first.frame, frameAt(first.t + win.size));
 }
 
 /**

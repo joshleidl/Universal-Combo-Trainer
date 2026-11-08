@@ -325,8 +325,7 @@ describe('direction feedback text', () => {
     expect(describeStep(start, true, { tolEarly: 0, tolLate: 0 })).toBe('Start · Direction: none, wanted any ↓');
   });
 
-  // Chords are graded over frames in plan milestone M4.
-  it.skip('a chord with a direction mistake keeps its split wording', () => {
+  it('a chord with a direction mistake keeps its split wording', () => {
     const c = combo([step(['HK'], { targetFrame: 0 }), step(['LP', 'LK'], { direction: 4 })]);
     let st = feedEngine(arm(createAttempt(c)), [
       ['press', 'HK', at(0)],

@@ -6,7 +6,7 @@
 // closed frame at a time (SPEC §3 "Frames", "Grading"), so a step's result comes when its
 // frame closes: on a later input or on tick().
 
-import { isChord } from './chord';
+import { chordGrade, chordWindowLastFrame, chordWindowOf, insideChordWindow, isChord, type PressPoint } from './chord';
 import { directionMistake, hasDirectionCheck, isDirection, positionMatches, resolvePosition } from './direction';
 import {
   addInput,
@@ -26,7 +26,9 @@ import type {
   AttemptPhase,
   AttemptResult,
   ButtonId,
+  ChordPress,
   Combo,
+  Grade,
   HeldPosition,
   PositionChange,
   PressEvent,
@@ -335,11 +337,22 @@ function missedResult(state: AttemptState, index: number): StepResult {
   return { stepIndex: index, expected: [...stepAt(state, index).buttons], grade: 'MISSED' };
 }
 
-/** MISSED once the awaited step's last accepted frame has closed (rule 1, "No presses"). */
+/**
+ * The time-based checks once frames have closed: a collecting chord whose window's last frame
+ * has closed is PARTIAL ("Chords", rule 6); otherwise the step is MISSED once its last accepted
+ * frame has closed ("Grading", rule 1). A collecting chord pauses the MISSED timer.
+ */
 function checkDeadline(state: AttemptState): AttemptState {
-  if (state.phase !== 'running' || state.chord) return state;
   const last = lastClosedFrame(state.frames);
-  if (last === null) return state;
+  if (last === null || state.phase === 'done') return state;
+  if (state.chord) {
+    const index = currentStepIndex(state) as number;
+    const end = chordWindowLastFrame(chordWindowOf(stepAt(state, index)), chordFirst(state.chord), (t) => frameOf(state.frames, t));
+    if (last < end) return state;
+    // Non-strict resets the chord, so the MISSED timer runs again.
+    return checkDeadline(chordMistake(state, index, 'PARTIAL', state.chord.presses));
+  }
+  if (state.phase !== 'running') return state;
   const index = state.results.length;
   const { refFrame } = referenceFor(state, index);
   if (last - refFrame < lastAcceptedFrame(stepAt(state, index), state.settings.timeoutFrames)) return state;
@@ -352,8 +365,8 @@ function gradeFrame(state: AttemptState, rec: FrameRecord): AttemptState {
   if (index === null) return state;
   const step = stepAt(state, index);
   const buttons = rec.presses.filter((p) => !isDirection(p.button));
-  if (isChord(step)) throw new Error('Chord steps are graded in plan milestone M4');
   if (buttons.length === 0) return state;
+  if (isChord(step)) return chordFrame(state, index, rec, buttons);
 
   const want = step.buttons[0];
   const hit = buttons.find((p) => p.button === want);
@@ -426,6 +439,124 @@ function framedResult(state: AttemptState, index: number, frame: number, p: Fram
     deltaFrames: timing.deltaFrames,
     deltaMs: timing.deltaMs,
   };
+}
+
+// --- chords (SPEC §3, "Chords") ----------------------------------------------
+
+/** Where the chord's window opens: its first frame, and the earliest press ms on it. */
+function chordFirst(chord: PendingChord): PressPoint {
+  const first = chord.presses[0];
+  if (!first) throw new Error('Empty chord');
+  const onFirst = chord.presses.filter((p) => p.frame === first.frame).map((p) => p.t);
+  return { t: Math.min(...onFirst), frame: first.frame };
+}
+
+/**
+ * A closed frame with button presses while a chord step is awaited. A button outside the chord,
+ * or one already pressed on an earlier frame, breaks it (WRONG_BUTTON); that includes any other
+ * press on the frame it completes on. Presses that don't fit the window (an ms window's last
+ * frame) mean it ran out: PARTIAL.
+ */
+function chordFrame(state: AttemptState, index: number, rec: FrameRecord, buttons: readonly FramePress[]): AttemptState {
+  const step = stepAt(state, index);
+  const earlier = state.chord?.presses ?? [];
+  const already = earlier.map((p) => p.ev.button);
+  const pending = (p: FramePress): PendingPress => ({ ev: p.ev, t: p.t, frame: rec.frame });
+  const valid = buttons.filter((p) => step.buttons.includes(p.button) && !already.includes(p.button));
+  const strays = buttons.filter((p) => !valid.includes(p));
+  if (strays.length > 0) {
+    // The wrong presses go last, so the result's press is one of them.
+    return chordMistake(state, index, 'WRONG_BUTTON', [...earlier, ...valid.map(pending), ...strays.map(pending)]);
+  }
+  const first = state.chord ? chordFirst(state.chord) : null;
+  const fits = (p: FramePress) => first === null || insideChordWindow(chordWindowOf(step), first, { t: p.t, frame: rec.frame });
+  // Presses on one frame in time order, so the graded (last) press is the latest.
+  const inWindow = valid.filter(fits).sort((a, b) => a.t - b.t).map(pending);
+  const outside = valid.filter((p) => !fits(p)).map(pending);
+  const presses = [...earlier, ...inWindow];
+  if (presses.length === step.buttons.length) return gradeChord(state, index, presses, rec);
+  if (outside.length > 0) return chordMistake(state, index, 'PARTIAL', presses, outside);
+  return { ...state, chord: { presses } };
+}
+
+/**
+ * A broken chord. Strict: WRONG_BUTTON or PARTIAL ends the attempt. Non-strict: every press of
+ * the chord (and `alsoIgnored`) is logged as ignored and the chord resets; a first-input step 1
+ * goes back to waiting.
+ */
+function chordMistake(
+  state: AttemptState,
+  index: number,
+  grade: 'WRONG_BUTTON' | 'PARTIAL',
+  presses: readonly PendingPress[],
+  alsoIgnored: readonly PendingPress[] = [],
+): AttemptState {
+  if (state.settings.strict) {
+    return finish(state, chordResult(state, index, grade, presses), grade === 'PARTIAL' ? 'partial' : 'wrongButton');
+  }
+  const ignored: AttemptState = {
+    ...state,
+    chord: null,
+    ignoredPresses: [...state.ignoredPresses, ...[...presses, ...alsoIgnored].map((p) => p.ev)],
+  };
+  return isStartStep(state, index) ? backToWaiting(ignored) : ignored;
+}
+
+/** A complete chord, graded on the frame it completed on (rules 3–5, 7; Directions rule 8). */
+function gradeChord(state: AttemptState, index: number, presses: readonly PendingPress[], rec: FrameRecord): AttemptState {
+  const step = stepAt(state, index);
+  const cleared: AttemptState = { ...state, chord: null };
+  if (isStartStep(state, index)) {
+    const result: StepResult = {
+      ...chordResult(state, index, 'ON_TIME', presses),
+      elapsedMs: 0,
+      inputFrame: 0,
+      deltaFrames: 0,
+      deltaMs: 0,
+    };
+    return startRunning(cleared, withDirectionCheck(step, result, rec.held), state.frames.origin as number, rec.frame);
+  }
+  return advance(cleared, withDirectionCheck(step, chordResult(state, index, null, presses), rec.held), rec.frame);
+}
+
+/**
+ * A chord step's result. Each press gets its own timing by its frame; the step-level timing
+ * fields are the last press's. `grade` null means grade the complete chord by its presses'
+ * timing (SPLIT rule).
+ */
+function chordResult(state: AttemptState, index: number, grade: Grade | null, presses: readonly PendingPress[]): StepResult {
+  const step = stepAt(state, index);
+  const fps = state.combo.fps;
+  const ref = !isStartStep(state, index) && state.frame0 !== null ? referenceFor(state, index) : null;
+  const timings = presses.map((p) => {
+    if (!ref) return null;
+    const elapsedMs = p.t - (ref.frame0 + frameToMs(ref.refFrame, fps));
+    return { ...gradeFrames(step, p.frame - ref.refFrame, elapsedMs, fps), elapsedMs };
+  });
+  const chordPresses: ChordPress[] = presses.map((p, i) => {
+    const tm = timings[i];
+    const out: ChordPress = { press: p.ev, correctedTimestamp: p.t };
+    if (tm) Object.assign(out, { inputFrame: tm.inputFrame, deltaFrames: tm.deltaFrames, deltaMs: tm.deltaMs, timing: tm.grade });
+    return out;
+  });
+  const last = presses.at(-1);
+  if (!last) throw new Error('A chord result needs at least one press');
+  const result: StepResult = {
+    stepIndex: index,
+    expected: [...step.buttons],
+    grade: grade ?? chordGrade(timings.map((tm) => tm?.grade ?? 'ON_TIME')),
+    press: last.ev,
+    correctedTimestamp: last.t,
+    presses: chordPresses,
+  };
+  const lastTiming = timings.at(-1);
+  if (lastTiming) {
+    result.elapsedMs = lastTiming.elapsedMs;
+    result.inputFrame = lastTiming.inputFrame;
+    result.deltaFrames = lastTiming.deltaFrames;
+    result.deltaMs = lastTiming.deltaMs;
+  }
+  return result;
 }
 
 /** The result with the step's direction check applied on the graded frame's end state (rule 6). */

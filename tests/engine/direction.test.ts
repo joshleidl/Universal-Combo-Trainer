@@ -348,11 +348,11 @@ describe('direction+button step 1 in first-input mode', () => {
 
 // --- chords with a direction (Directions, rule 8) ----------------------------
 
-// Chords are graded over frames in plan milestone M4.
-describe.skip('chords with a direction', () => {
+describe('chords with a direction', () => {
   it('a failed check replaces SPLIT', () => {
     const c = combo([step(['LK'], 0), step(['LP', 'LK'], 10, { direction: 4, directionMatch: 'exact' }), step(['HP'], 10)]);
     let st = down(arm(createAttempt(c), ['RIGHT']), 'LK', T0);
+    st = up(st, 'LK', at(1)); // so the chord can press LK again
     st = down(down(st, 'LP', at(8)), 'LK', at(10)); // early + on time = SPLIT
     st = tick(st, at(11, 0));
     expect(st.results[1]).toMatchObject({ grade: 'WRONG_BUTTON', directionMistake: 'wrong', direction: { held: 6 } });
@@ -363,6 +363,7 @@ describe.skip('chords with a direction', () => {
   it('a passing check keeps the chord grade', () => {
     const c = combo([step(['LK'], 0), step(['LP', 'LK'], 10, { direction: 4 }), step(['HP'], 10)]);
     let st = down(arm(createAttempt(c), ['LEFT']), 'LK', T0);
+    st = up(st, 'LK', at(1)); // so the chord can press LK again
     st = tick(down(down(st, 'LP', at(8)), 'LK', at(10)), at(11, 0));
     expect(st.results[1]).toMatchObject({ grade: 'SPLIT', direction: { wanted: 4, held: 4, match: 'atLeast' } });
   });
@@ -370,6 +371,7 @@ describe.skip('chords with a direction', () => {
   it('a chord that runs out of window is PARTIAL by the chord rules, with no check', () => {
     const c = combo([step(['LK'], 0), step(['LP', 'LK'], 10, { direction: 4 }), step(['HP'], 10)]);
     let st = down(arm(createAttempt(c), ['LEFT']), 'LK', T0);
+    st = up(st, 'LK', at(1)); // so the chord can press LK again
     st = tick(down(st, 'LP', at(10)), at(13, 0));
     expect(st.endedBy).toBe('partial');
     expect(st.results[1]?.direction).toBeUndefined();
@@ -467,8 +469,7 @@ describe('AttemptResult.positions', () => {
     ]);
   });
 
-  // Chords are graded over frames in plan milestone M4.
-  it.skip('a step-1 chord in first-input mode anchors frame 0 at its first press', () => {
+  it('a step-1 chord in first-input mode anchors frame 0 at its first press', () => {
     const ch = combo([step(['LP', 'LK'], 0), step(['MP'], 20, { tolEarly: 30, tolLate: 30 })]);
     let st = down(arm(createAttempt(ch)), 'LP', T0);
     st = down(st, 'DOWN', at(1, 1));

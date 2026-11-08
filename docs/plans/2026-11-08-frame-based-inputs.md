@@ -43,7 +43,7 @@ Apply the proposal to the project docs before any code (CLAUDE.md).
 - **Tests:** update `tests/engine/attempt.test.ts`, `direction.test.ts`, `directionExamples.test.ts`, `fixedFrameGrid.test.ts`, `gameFrameGap.test.ts` for results arriving at frame close (helpers add a closing `tick`); rewrite same-frame cases (C6): stray on the same frame in either order (F2, F2n, F11), late (F12), relative target 0 can't be on time.
 - As built: shared helper `tests/engine/settle.ts` (`settle`, `openFrameEnd`) closes the open frame at its end; new rule tests in `tests/engine/frameGrading.test.ts`; practice tests updated too (results and the next countdown come at frame close; repeated presses of one button now need releases, so practice helpers send taps).
 
-### M4. Engine: chords over frames
+### M4. Engine: chords over frames (done)
 - `src/engine/attempt.ts` and `src/engine/chord.ts`: collecting over frames (3.3); window in frames, and in `ms` with the same-frame rule; complete on the frame the last button is pressed, with the extra-press rule on that frame; `PARTIAL` when the window's last frame closes; per-press timing by frame; `SPLIT` unchanged; step-1 chord in first-input mode; chords with a direction checked on the completing frame's end state.
 - **Tests:** unskip and update `tests/engine/chord.test.ts` and the chord cases in other engine tests; add F9, F10, and "presses on one frame can't split".
 

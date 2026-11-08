@@ -351,3 +351,10 @@ Engine only (`engine/attempt.ts`), per SPEC §3 "Frames", "Grading", "First-inpu
   - Results, sounds and the next countdown come when the graded frame closes, not on the press.
   - A first-input stray within one frame of the start press now voids both in non-strict mode (the extra-press rule on frame 0).
   - Pressing the same button again with no release in between isn't a press. The old tests never sent releases; they now do (the practice helpers send taps: press and release at the same time).
+
+## Frame-based inputs: M4, chords (2026-11-08)
+Engine only (`engine/attempt.ts`, `engine/chord.ts`), per SPEC §3 "Chords". Tests: `tests/engine/chord.test.ts` (F9, F10, same-frame timing, ms window end, non-strict cases added).
+- **`insideChordWindow`** now applies the same-frame rule for `ms` (a press on the first press's frame always fits). New `chordWindowLastFrame` gives the frame whose close makes an incomplete chord `PARTIAL`.
+- **Presses completing a chord on one frame** are put in time order, so the graded press is the latest one on that frame.
+- **Non-strict `PARTIAL`** resets the chord, then the `MISSED` check runs again in the same close (the timer was only paused while collecting).
+- **Behavior changes seen in the existing tests:** a chord button pressed twice on one frame is one press (decision 4b), not a mistake; pressing it again on a later frame still is. Presses far apart on one frame now pass a small `ms` window (decision 10).

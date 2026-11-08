@@ -175,13 +175,11 @@ const cases: Case[] = [
 ];
 
 describe('worked examples (proposal section 2)', () => {
-  // Chord cases are graded over frames in plan milestone M4.
-  const isChordCase = (c: Case) => c.step.buttons.length > 1;
-  it.skip.each(cases.filter(isChordCase))('$name', () => {});
-  it.each(cases.filter((c) => !isChordCase(c)))('$name', (c) => {
+  it.each(cases)('$name', (c) => {
     const c3 = combo([step(['LK'], { targetFrame: 0, tolEarly: 0, tolLate: 0 }), c.step, step(['HK'], { targetFrame: 20, tolEarly: 5, tolLate: 5 })]);
     let st = arm(createAttempt(c3), c.held ?? []);
-    st = feed(st, [P('LK', T0), ...c.inputs]);
+    // LK (step 1) is let go on frame 1, so a chord with LK can press it again.
+    st = feed(st, [P('LK', T0), R('LK', at(1)), ...c.inputs]);
     st = tick(st, at(14)); // past the end of every case's checked frame
 
     const r = st.results[1];
@@ -198,10 +196,9 @@ describe('worked examples (proposal section 2)', () => {
     expect(st.ignoredPresses).toEqual([]);
   });
 
-  // Chords are graded over frames in plan milestone M4.
-  it.skip('C4 ←+LP+LK, LP on 10, HP on 11: the chord mistake wins and strict ends the attempt', () => {
+  it('C4 ←+LP+LK, LP on 10, HP on 11: the chord mistake wins and strict ends the attempt', () => {
     const c = combo([step(['LK'], { targetFrame: 0 }), step(['LP', 'LK'], { direction: 4, directionMatch: 'exact' }), step(['HK'])]);
-    const st = feed(arm(createAttempt(c), ['LEFT']), [P('LK', T0), P('LP', at(10)), P('HP', at(11))]);
+    const st = settle(feed(arm(createAttempt(c), ['LEFT']), [P('LK', T0), R('LK', at(1)), P('LP', at(10)), P('HP', at(11))]));
     expect(st.phase).toBe('done');
     expect(st.endedBy).toBe('wrongButton');
     expect(st.results[1]?.grade).toBe('WRONG_BUTTON');
