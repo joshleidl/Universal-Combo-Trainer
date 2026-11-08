@@ -7,7 +7,7 @@
 // frame closes: on a later input or on tick().
 
 import { chordGrade, chordWindowLastFrame, chordWindowOf, insideChordWindow, isChord, type PressPoint } from './chord';
-import { directionMistake, hasDirectionCheck, isDirection, positionMatches, resolvePosition } from './direction';
+import { directionMistake, hasDirectionCheck, isDirection, positionDirections, positionMatches, resolvePosition } from './direction';
 import {
   addInput,
   clearOrigin,
@@ -30,11 +30,13 @@ import type {
   Combo,
   Grade,
   HeldPosition,
+  LostRepress,
   PositionChange,
   PressEvent,
   ReleaseEvent,
   Settings,
   Step,
+  StepReports,
   StepResult,
 } from './types';
 import { DIRECTION_BUTTONS } from './types';
@@ -59,6 +61,8 @@ export interface AttemptState {
   readonly held: readonly ButtonId[];
   /** The frame layer: the grid, the open frame and the held set (SPEC §4 "Engine API: frames"). */
   readonly frames: FrameBuffer;
+  /** Lost re-presses while the awaited step waits; they go on its result (SPEC §3 "Frames"). */
+  readonly lostRepresses: readonly LostRepress[];
   /**
    * The position held at arm (time -Infinity), then each change of the resolved position with
    * its corrected time. `attemptResult` turns it into `positions`. While there is no grid yet
@@ -166,6 +170,7 @@ export function createAttempt(combo: Combo, settings: Settings = DEFAULT_SETTING
     chord: null,
     held: [],
     frames: createFrames(combo.fps),
+    lostRepresses: [],
     positionLog: [{ t: -Infinity, position: 5 }],
   };
 }
@@ -310,11 +315,18 @@ function stepAt(state: AttemptState, index: number): Step {
 const isStartStep = (state: AttemptState, index: number) =>
   index === 0 && state.combo.startMode === 'firstInput';
 
+/** The result with the awaited step's lost re-presses added (SPEC §3 "Frames"). */
+function withLostRepresses(state: AttemptState, result: StepResult): StepResult {
+  if (state.lostRepresses.length === 0) return result;
+  return { ...result, reports: { ...result.reports, lostRepresses: [...state.lostRepresses] } };
+}
+
 function finish(state: AttemptState, result: StepResult, endedBy: AttemptEnd): AttemptState {
   return {
     ...state,
     phase: 'done',
-    results: [...state.results, result],
+    results: [...state.results, withLostRepresses(state, result)],
+    lostRepresses: [],
     endedBy,
     chord: null,
     frames: clearOrigin(state.frames),
@@ -323,14 +335,14 @@ function finish(state: AttemptState, result: StepResult, endedBy: AttemptEnd): A
 
 /** A graded first-input start step: sets frame 0 and starts running (or finishes a 1-step combo). */
 function startRunning(state: AttemptState, result: StepResult, frame0: number, lastInputFrame: number): AttemptState {
-  const next: AttemptState = { ...state, phase: 'running', frame0, lastInputFrame, results: [result] };
-  return state.combo.steps.length === 1 ? finish({ ...next, results: [] }, result, 'completed') : next;
+  if (state.combo.steps.length === 1) return finish({ ...state, phase: 'running', frame0, lastInputFrame }, result, 'completed');
+  return { ...state, phase: 'running', frame0, lastInputFrame, results: [withLostRepresses(state, result)], lostRepresses: [] };
 }
 
 /** A graded step after the start: moves to the next step, or completes the attempt. */
 function advance(state: AttemptState, result: StepResult, frame: number): AttemptState {
   if (result.stepIndex === state.combo.steps.length - 1) return finish(state, result, 'completed');
-  return { ...state, results: [...state.results, result], lastInputFrame: frame };
+  return { ...state, results: [...state.results, withLostRepresses(state, result)], lostRepresses: [], lastInputFrame: frame };
 }
 
 function missedResult(state: AttemptState, index: number): StepResult {
@@ -360,9 +372,12 @@ function checkDeadline(state: AttemptState): AttemptState {
 }
 
 /** Grades one closed frame against the awaited step. */
-function gradeFrame(state: AttemptState, rec: FrameRecord): AttemptState {
-  const index = currentStepIndex(state);
-  if (index === null) return state;
+function gradeFrame(closing: AttemptState, rec: FrameRecord): AttemptState {
+  const index = currentStepIndex(closing);
+  if (index === null) return closing;
+  // Lost re-presses on this frame are reported on the step awaited now (A1).
+  const lost = rec.lostRepresses.map((p): LostRepress => ({ button: p.button, frame: rec.frame, timestamp: p.t }));
+  const state: AttemptState = lost.length > 0 ? { ...closing, lostRepresses: [...closing.lostRepresses, ...lost] } : closing;
   const step = stepAt(state, index);
   const buttons = rec.presses.filter((p) => !isDirection(p.button));
   if (buttons.length === 0) return state;
@@ -400,14 +415,14 @@ function gradeFrame(state: AttemptState, rec: FrameRecord): AttemptState {
       deltaFrames: 0,
       deltaMs: 0,
     };
-    return startRunning(state, withDirectionCheck(step, result, rec.held), frame0, rec.frame);
+    return startRunning(state, withDirectionCheck(step, result, rec), frame0, rec.frame);
   }
 
   const result = framedResult(state, index, rec.frame, hit);
   if ((result.inputFrame as number) > lastAcceptedFrame(step, state.settings.timeoutFrames)) {
     return finish(state, missedResult(state, index), 'missed');
   }
-  return advance(state, withDirectionCheck(step, result, rec.held), rec.frame);
+  return advance(state, withDirectionCheck(step, result, rec), rec.frame);
 }
 
 /** Non-strict first-input step 1 failed: back to waiting for a new frame 0, held state kept. */
@@ -514,9 +529,9 @@ function gradeChord(state: AttemptState, index: number, presses: readonly Pendin
       deltaFrames: 0,
       deltaMs: 0,
     };
-    return startRunning(cleared, withDirectionCheck(step, result, rec.held), state.frames.origin as number, rec.frame);
+    return startRunning(cleared, withDirectionCheck(step, result, rec), state.frames.origin as number, rec.frame);
   }
-  return advance(cleared, withDirectionCheck(step, chordResult(state, index, null, presses), rec.held), rec.frame);
+  return advance(cleared, withDirectionCheck(step, chordResult(state, index, null, presses), rec), rec.frame);
 }
 
 /**
@@ -559,16 +574,26 @@ function chordResult(state: AttemptState, index: number, grade: Grade | null, pr
   return result;
 }
 
-/** The result with the step's direction check applied on the graded frame's end state (rule 6). */
-function withDirectionCheck(step: Step, result: StepResult, held: readonly ButtonId[]): StepResult {
+/**
+ * The result with the step's direction check applied on the graded frame's end state (rule 6).
+ * A failed check also reports wanted directions tapped on the frame and opposite directions held
+ * at its end (rule 5).
+ */
+function withDirectionCheck(step: Step, result: StepResult, rec: FrameRecord): StepResult {
   if (!hasDirectionCheck(step)) return result;
   const wanted: HeldPosition = step.direction ?? 5;
   const match = step.directionMatch ?? 'atLeast';
-  const position = resolvePosition(held);
+  const position = rec.position;
   const checked: StepResult = { ...result, direction: { wanted, held: position, match } };
   if (positionMatches(wanted, position, match)) return checked;
   const mistake = directionMistake(wanted, position);
-  return { ...checked, grade: mistake === 'missing' ? 'PARTIAL' : 'WRONG_BUTTON', directionMistake: mistake };
+  const failed: StepResult = { ...checked, grade: mistake === 'missing' ? 'PARTIAL' : 'WRONG_BUTTON', directionMistake: mistake };
+  const wantedDirs = positionDirections(wanted);
+  const reports: StepReports = {};
+  const taps = rec.directionTaps.filter((d) => wantedDirs.includes(d));
+  if (taps.length > 0) reports.directionTaps = taps;
+  if (rec.opposites.length > 0) reports.opposites = [...rec.opposites];
+  return Object.keys(reports).length > 0 ? { ...failed, reports: { ...failed.reports, ...reports } } : failed;
 }
 
 // --- results -----------------------------------------------------------------

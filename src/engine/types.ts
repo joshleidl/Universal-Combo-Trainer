@@ -112,6 +112,28 @@ export interface ChordPress {
   timing?: PressTiming;
 }
 
+/** Opposite directions held together (SPEC §3 "Frames", reports). */
+export type OppositePair = 'LEFT_RIGHT' | 'UP_DOWN';
+
+/** A held button released and pressed again on one frame, so it didn't count (SPEC §3 "Frames"). */
+export interface LostRepress {
+  button: ButtonId;
+  /** Grid frame (frames since frame 0). */
+  frame: number;
+  /** Corrected time of its last down event. */
+  timestamp: number;
+}
+
+/** Inputs that didn't count, explained on a step's result (SPEC §3 "Frames", "Directions" rule 5). */
+export interface StepReports {
+  /** Lost re-presses while this step was awaited. */
+  lostRepresses?: LostRepress[];
+  /** Failed checks only: wanted directions pressed on the graded frame but not held at its end. */
+  directionTaps?: ButtonId[];
+  /** Failed checks only: opposite directions held at the graded frame's end. */
+  opposites?: OppositePair[];
+}
+
 export interface StepResult {
   stepIndex: number;
   expected: ButtonId[];
@@ -138,6 +160,8 @@ export interface StepResult {
   direction?: { wanted: HeldPosition; held: HeldPosition; match: DirectionMatch };
   /** Set when the direction check failed; the grade is then PARTIAL (missing) or WRONG_BUTTON (wrong). */
   directionMistake?: DirectionMistake;
+  /** Inputs that didn't count, when there are any. */
+  reports?: StepReports;
 }
 
 /** The stick position from a frame's end on (SPEC §4, "Engine API: directions"). */

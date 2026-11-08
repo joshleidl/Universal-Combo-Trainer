@@ -4,7 +4,9 @@
 
 import { isDirection, resolvePosition } from './direction';
 import { msToFrame } from './timing';
-import type { ButtonId, HeldPosition, PressEvent, ReleaseEvent } from './types';
+import type { ButtonId, HeldPosition, OppositePair, PressEvent, ReleaseEvent } from './types';
+
+export type { OppositePair };
 
 /** One press or release on a frame, in arrival order. */
 export interface FrameEvent {
@@ -23,8 +25,6 @@ export interface FramePress {
   /** Corrected timestamp of the last down event. */
   readonly t: number;
 }
-
-export type OppositePair = 'LEFT_RIGHT' | 'UP_DOWN';
 
 export interface FrameRecord {
   /** Grid frame (frames since the origin; negative before it). */

@@ -239,7 +239,7 @@ For "Frames" (§3), settled by the user on 2026-11-08 (proposal decision 15). `G
   - `AttemptState.held` holds buttons and directions (the press rule needs held buttons). `arm(state, held?)` keeps both; `release` updates both. `heldPosition` is unchanged (it resolves directions only).
   - `frame0` is still set when step 1 is graded (first-input) or by `start()` (countdown); the frame layer keeps its own origin while frame 0 is open.
   - `chordProgress` shows presses from closed frames only.
-- **Results** (`engine/types.ts`): `StepResult` gains `reports?: { lostRepresses?: { button, frame, timestamp }[]; directionTaps?: ButtonId[]; opposites?: OppositePair[] }`. `frame` is the grid frame since frame 0, `timestamp` the corrected time. `directionTaps` and `opposites` are set only on a failed direction check; `lostRepresses` on the step awaited when they happened. Frame records aren't kept in `AttemptResult`.
+- **Results** (`engine/types.ts`): `StepResult` gains `reports?: StepReports`, with `StepReports = { lostRepresses?: LostRepress[]; directionTaps?: ButtonId[]; opposites?: OppositePair[] }` and `LostRepress = { button, frame, timestamp }`. `OppositePair` lives in `types.ts` and is re-exported by `frames.ts`. `frame` is the grid frame since frame 0, `timestamp` the corrected time. `directionTaps` and `opposites` are set only on a failed direction check; `lostRepresses` on the step awaited when they happened. Frame records aren't kept in `AttemptResult`.
 
 ### Saved data
 - **Storage** stays `uct.combos.v1`. A step without `direction` or `directionMatch` is a plain at-least step, so old steps load as they were.

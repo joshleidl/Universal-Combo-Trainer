@@ -47,7 +47,7 @@ Apply the proposal to the project docs before any code (CLAUDE.md).
 - `src/engine/attempt.ts` and `src/engine/chord.ts`: collecting over frames (3.3); window in frames, and in `ms` with the same-frame rule; complete on the frame the last button is pressed, with the extra-press rule on that frame; `PARTIAL` when the window's last frame closes; per-press timing by frame; `SPLIT` unchanged; step-1 chord in first-input mode; chords with a direction checked on the completing frame's end state.
 - **Tests:** unskip and update `tests/engine/chord.test.ts` and the chord cases in other engine tests; add F9, F10, and "presses on one frame can't split".
 
-### M5. Engine: reports, and the F1–F12 table test
+### M5. Engine: reports, and the F1–F12 table test (done)
 - `src/engine/types.ts`: `StepResult.reports` (`lostRepresses`, `directionTaps`, `opposites`).
 - `src/engine/attempt.ts`: collect lost re-presses for the awaited step until it's graded (A1); on a failed direction check, add ignored direction taps and opposite pairs from the graded frame (A2, decision 5).
 - **Tests first:** `tests/engine/frameExamples.test.ts`, one row per worked example F1–F12 (proposal section 2), checking grade, timing fields, when the result is known, and reports. Plus report edge cases: none on a passing check, none when no step is awaited.

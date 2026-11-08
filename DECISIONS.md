@@ -358,3 +358,10 @@ Engine only (`engine/attempt.ts`, `engine/chord.ts`), per SPEC §3 "Chords". Tes
 - **Presses completing a chord on one frame** are put in time order, so the graded press is the latest one on that frame.
 - **Non-strict `PARTIAL`** resets the chord, then the `MISSED` check runs again in the same close (the timer was only paused while collecting).
 - **Behavior changes seen in the existing tests:** a chord button pressed twice on one frame is one press (decision 4b), not a mistake; pressing it again on a later frame still is. Presses far apart on one frame now pass a small `ms` window (decision 10).
+
+## Frame-based inputs: M5, reports (2026-11-08)
+Engine only, per SPEC §3 "Frames" (lost re-press), "Directions" rule 5 (reports) and §4 "Engine API: frames". Tests: `tests/engine/frameExamples.test.ts` (F1–F12 and report edge cases).
+- **Lost re-presses collect on the attempt** (`AttemptState.lostRepresses`) while a step is awaited and go on the next result made for it, whatever it is (graded, `WRONG_BUTTON`, `PARTIAL` or `MISSED`). A frame can add several over time; each keeps its own frame.
+- **Kept across a non-strict step-1 restart** (simplest option): when frame 0 is cleared, step 1 is still the awaited step, so its lost re-presses stay; their frame numbers are from the cleared grid.
+- **Ignored direction taps** count only wanted directions (those in the step's position); a tap of another direction isn't reported. **Opposite pairs** are every pair held at the graded frame's end, on a failed check.
+- **F12 wording gap** (for M6): the proposal's text "1f late (+38.3 ms, +2.3f)" counts frames past the late window, but today's text counts `deltaFrames` from the target ("2f late"). The engine reports `deltaFrames` 2, unchanged.
