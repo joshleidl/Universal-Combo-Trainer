@@ -36,11 +36,12 @@ Apply the proposal to the project docs before any code (CLAUDE.md).
 - Export from `engine/index.ts`. Not wired into `attempt.ts` yet.
 - **Test first:** `tests/engine/frames.test.ts`: grouping by frame, frame closes on a later input and on `closeBefore`, tap inside a frame registers (F3), double tap is one press timed from the last down (F5), lost re-press (F4), held at arm gives no press, direction tap and opposites flags (F6, F7), late input lands on the open frame, negative frames.
 
-### M3. Engine: single-button steps graded per closed frame
+### M3. Engine: single-button steps graded per closed frame (done)
 - `src/engine/attempt.ts`: route `press` / `release` / `tick` through the frame buffer; grade each closed frame against the awaited step (3.2): no presses / exactly the step's button / step's button plus a stray (extra press, every step) / only strays. One step per frame. `MISSED` when the last accepted frame closes. First-input start (frame 0 at the first press edge; step 1 graded when frame 0 closes; non-strict failure clears frame 0). Countdown: frames from `start()` on, negative ones included. Direction check on the graded frame's end state. Remove `pendingCheck`. `arm` keeps held buttons; `release` updates button held state.
 - `src/engine/types.ts`: drop nothing public yet; `AttemptState` changes (internal).
 - Chord steps: their tests (engine and practice) are skipped in this milestone (`describe.skip` / `it.skip`, pointing at M4); chord grading is temporarily a stub that throws. The app's chord example is broken until M4.
 - **Tests:** update `tests/engine/attempt.test.ts`, `direction.test.ts`, `directionExamples.test.ts`, `fixedFrameGrid.test.ts`, `gameFrameGap.test.ts` for results arriving at frame close (helpers add a closing `tick`); rewrite same-frame cases (C6): stray on the same frame in either order (F2, F2n, F11), late (F12), relative target 0 can't be on time.
+- As built: shared helper `tests/engine/settle.ts` (`settle`, `openFrameEnd`) closes the open frame at its end; new rule tests in `tests/engine/frameGrading.test.ts`; practice tests updated too (results and the next countdown come at frame close; repeated presses of one button now need releases, so practice helpers send taps).
 
 ### M4. Engine: chords over frames
 - `src/engine/attempt.ts` and `src/engine/chord.ts`: collecting over frames (3.3); window in frames, and in `ms` with the same-frame rule; complete on the frame the last button is pressed, with the extra-press rule on that frame; `PARTIAL` when the window's last frame closes; per-press timing by frame; `SPLIT` unchanged; step-1 chord in first-input mode; chords with a direction checked on the completing frame's end state.

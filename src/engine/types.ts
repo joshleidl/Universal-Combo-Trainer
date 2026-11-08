@@ -13,7 +13,7 @@ export interface PressEvent {
   source: InputSource;
 }
 
-/** A release edge. Only direction releases matter to the engine (SPEC §3, "Directions"). */
+/** A release edge. The engine tracks held buttons and directions with it (SPEC §3, "Frames"). */
 export interface ReleaseEvent {
   button: ButtonId;
   /** Milliseconds, same clock as performance.now() / KeyboardEvent.timeStamp. */

@@ -339,3 +339,15 @@ Applied from [docs/proposals/2026-11-08-frame-based-inputs-spec.md](docs/proposa
   - **`chordProgress`** shows presses from closed frames only, so the live chord highlight can lag a frame.
   - **The frame fraction** is shown wherever the ms is, including the wrong-button text.
   - **The last step** follows the extra-press rule too, so the attempt completes when its frame closes.
+
+## Frame-based inputs: M3, single-button steps (2026-11-08)
+Engine only (`engine/attempt.ts`), per SPEC §3 "Frames", "Grading", "First-input start" and §4 "Engine API: frames". Tests: `tests/engine/frameGrading.test.ts`, plus the existing engine and practice tests updated.
+- **Gaps filled (simplest option):**
+  - **Held buttons are tracked in every phase**, idle and done included, like directions. A press in idle or done changes only the held set.
+  - **No change, same state.** An input that changes nothing (no grid yet, held set unchanged) returns the state unchanged, so the practice layer's "did the attempt change" checks still hold.
+  - **The attempt drops its grid when it ends** (`finish` clears the frame layer's origin), so inputs after the end only change the held set.
+  - **`frame0` stays null until step 1 is graded** in first-input mode; the frame layer's origin holds frame 0 while it's open (as a step-1 chord did before).
+- **Behavior changes seen in the existing tests** (all from the proposal's section 4):
+  - Results, sounds and the next countdown come when the graded frame closes, not on the press.
+  - A first-input stray within one frame of the start press now voids both in non-strict mode (the extra-press rule on frame 0).
+  - Pressing the same button again with no release in between isn't a press. The old tests never sent releases; they now do (the practice helpers send taps: press and release at the same time).

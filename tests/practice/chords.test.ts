@@ -33,7 +33,8 @@ function run(presses: PressEvent[], c: Combo = combo()): AttemptState {
   return tick(st, at(60));
 }
 
-describe('chord feedback text', () => {
+// Chords are graded over frames in plan milestone M4.
+describe.skip('chord feedback text', () => {
   it('names chords with +', () => {
     expect(buttonsName(['LP', 'MP', 'HP'])).toBe('LP+MP+HP');
   });
@@ -69,7 +70,8 @@ describe('chord feedback text', () => {
   });
 });
 
-describe('chord timeline', () => {
+// Chords are graded over frames in plan milestone M4.
+describe.skip('chord timeline', () => {
   it('draws every chord press and the chord window', () => {
     const step = buildTimeline(run([p('LP', at(10)), p('MP', at(11))]))!.steps[1]!;
     expect(step.expected).toEqual(['LP', 'MP']);
@@ -96,7 +98,8 @@ describe('chord timeline', () => {
   });
 });
 
-describe('chord stats', () => {
+// Chords are graded over frames in plan milestone M4.
+describe.skip('chord stats', () => {
   it('counts each grade; split deltas count toward the average, partial ones do not', () => {
     let stats = emptyStats(2);
     stats = recordAttempt(stats, attemptResult(run([p('LP', at(7)), p('MP', at(10))]))!); // SPLIT, 0f
@@ -108,7 +111,8 @@ describe('chord stats', () => {
   });
 });
 
-describe('chords in a practice session', () => {
+// Chords are graded over frames in plan milestone M4.
+describe.skip('chords in a practice session', () => {
   it('grades the chord after its last frame, with an off sound for a split', () => {
     let st = createPractice(combo(), DEFAULT_SETTINGS);
     st = practicePress(st, p('HK', T0));
