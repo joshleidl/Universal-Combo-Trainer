@@ -30,8 +30,8 @@ Apply the proposal to the project docs before any code (CLAUDE.md).
 - Commit the proposal file and this plan with it.
 - **Test:** none (no code). Tests and typecheck still pass (502).
 
-### M2. Frame layer module
-- New `src/engine/frames.ts` (pure): `FrameEvent`, `FramePress`, `FrameRecord`, `FrameBuffer`; `createFrameBuffer(held)`, `setOrigin(buffer, frame0)`, `addInput(buffer, input) → { buffer, closed }`, `closeBefore(buffer, frame) → { buffer, closed }`, `heldNow(buffer)`. Grid math reuses `msToFrame` from `timing.ts`.
+### M2. Frame layer module (done)
+- New `src/engine/frames.ts` (pure): `FrameEvent`, `FramePress`, `FrameRecord`, `FrameBuffer`; `createFrames(fps, held)`, `setOrigin`, `clearOrigin`, `addInput(buf, ev, t, down) → { buf, closed }`, `closeBefore(buf, frame) → { buf, closed }`, `lastClosedFrame`, `frameOf` (names as in SPEC §4; the held set is `buf.held`). Grid math reuses `msToFrame` from `timing.ts`.
 - Rules: the press rule against the previous frame's end; one press per button per frame, ms from the last down event; lost re-presses; direction taps; end state with SOCD position and opposite pairs; an input on an already closed frame counts on the open frame.
 - Export from `engine/index.ts`. Not wired into `attempt.ts` yet.
 - **Test first:** `tests/engine/frames.test.ts`: grouping by frame, frame closes on a later input and on `closeBefore`, tap inside a frame registers (F3), double tap is one press timed from the last down (F5), lost re-press (F4), held at arm gives no press, direction tap and opposites flags (F6, F7), late input lands on the open frame, negative frames.
